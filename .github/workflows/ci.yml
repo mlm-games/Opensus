@@ -6,29 +6,41 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace
+      - uses: actions/checkout@v7
+      # - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends \
+            libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - run: cargo check --workspace --all-targets
       - run: cargo check --features physics
       - run: cargo check --target wasm32-unknown-unknown
+      - run: cargo check --target aarch64-linux-android
+      - run: cargo test --workspace --all-targets
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace -- -D warnings
-      - run: cargo fmt --check
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends \
+            libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo fmt --all -- --check
