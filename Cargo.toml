@@ -49,7 +49,7 @@ bevy = { git = "https://github.com/bevyengine/bevy", rev = "fb89a8649d9b359e53ff
     "bevy_clipboard",
     "custom_cursor",
 ] }
-repose-bevy = { path = "/home/ymsr/Documents/Repos/repose-bevy", default-features = false, features = [
+repose-bevy = { git = "https://github.com/mlm-games/repose-bevy", default-features = false, features = [
     "offscreen",
 ] }
 repose-core = "0.24"
