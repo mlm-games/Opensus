@@ -4330,6 +4330,7 @@ dependencies = [
  "repose-ui",
  "ron",
  "serde",
+ "wgpu 30.0.0",
 ]
 
 [[package]]
@@ -5260,12 +5261,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
 
 [[package]]
-name = "pollster"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc6355899e1c9462875b6757c79f3caa011a1fdae12bbb1a2e72dd1f234f8336"
-
-[[package]]
 name = "portable-atomic"
 version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5611,10 +5606,8 @@ dependencies = [
  "anyhow",
  "bevy 0.20.0-dev",
  "bytemuck",
- "image",
  "log",
  "parking_lot",
- "pollster 1.0.1",
  "repose-app",
  "repose-core",
  "repose-render-wgpu",
@@ -5665,7 +5658,7 @@ dependencies = [
  "log",
  "lyon_path",
  "lyon_tessellation",
- "pollster 0.4.0",
+ "pollster",
  "repose-core",
  "repose-text",
  "wgpu 30.0.0",
