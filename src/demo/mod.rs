@@ -156,12 +156,12 @@ fn spawn_enemies(
         return;
     }
     *timer = 0.8;
-    let mut rng = rand::thread_rng();
-    let x = rng.gen_range(-550.0..550.0);
+    let mut rng = rand::rng();
+    let x = rng.random_range(-550.0..550.0);
     let e = commands
         .spawn((
             DemoCleanup,
-            Enemy { speed: rng.gen_range(60.0..140.0) },
+            Enemy { speed: rng.random_range(60.0..140.0) },
             Sprite {
                 color: Color::srgb(1.0, 0.35, 0.35),
                 custom_size: Some(Vec2::splat(24.0)),
