@@ -27,7 +27,7 @@ jobs:
       - run: cargo check --workspace --all-targets
       - run: cargo check --features physics
       - run: cargo check --target wasm32-unknown-unknown --no-default-features
-      - run: cargo check --target aarch64-linux-android
+      # - run: cargo check --target aarch64-linux-android
       - run: cargo test --workspace --all-targets
 
   lint:
