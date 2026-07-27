@@ -1,0 +1,14 @@
+id: com.mlm-games.my-ecosystem-bevy
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: my-ecosystem-bevy
+modules:
+  - name: my-ecosystem-bevy
+    buildsystem: simple
+    build-commands:
+      - cargo build --release
+      - install -Dm755 target/release/my-ecosystem-bevy /app/bin/my-ecosystem-bevy
+    sources:
+      - type: dir
+        path: .

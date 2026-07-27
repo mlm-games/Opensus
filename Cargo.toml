@@ -1,0 +1,62 @@
+[package]
+name = "my-ecosystem-bevy"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+description = "Clone of my Godot template for bevy (port of my-ecosystem-template) with Repose UI"
+repository = "https://github.com/mlm-games/my-ecosystem-bevy"
+readme = "README.md"
+keywords = ["bevy", "gamedev", "template", "2d", "repose"]
+categories = ["game-development"]
+rust-version = "1.96"
+
+[features]
+default = ["dev_native"]
+dev = []
+dev_native = ["dev"]
+physics = ["dep:avian2d"]
+
+[dependencies]
+bevy = { git = "https://github.com/bevyengine/bevy", rev = "fb89a8649d9b359e53ffb6e5492ebb7c059ac8af", default-features = false, features = [
+    "bevy_asset",
+    "bevy_audio",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_render",
+    "bevy_sprite",
+    "bevy_sprite_render",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_ui_render",
+    "bevy_camera",
+    "bevy_mesh",
+    "bevy_shader",
+    "bevy_material",
+    "bevy_animation",
+    "bevy_image",
+    "bevy_window",
+    "bevy_winit",
+    "x11",
+    "wayland",
+    "png",
+    "vorbis",
+    "multi_threaded",
+    "default_font",
+    "bevy_log",
+    "async_executor",
+    "reflect_auto_register",
+    "bevy_clipboard",
+    "custom_cursor",
+] }
+repose-bevy = { path = "/home/ymsr/Documents/Repos/repose-bevy", default-features = false, features = [
+    "offscreen",
+] }
+repose-core = "0.24"
+repose-ui = "0.24"
+repose-render-wgpu = "0.24"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+ron = "0.8"
+directories = "5"
+avian2d = { version = "0.4", optional = true, features = ["2d", "f32"] }

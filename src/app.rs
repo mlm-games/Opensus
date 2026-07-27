@@ -1,0 +1,230 @@
+use std::sync::{Arc, Mutex};
+
+use bevy::prelude::*;
+use repose_bevy::{ReposePlugin, ReposePluginSettings};
+
+use crate::demo::DemoPlugin;
+use crate::dev_tools::DevToolsPlugin;
+use crate::ecosystem::{
+    audio::AudioPlugin, game_feel::GameFeelPlugin, juice::JuicePlugin, save::SavePlugin,
+    screen_effects::ScreenEffectsPlugin, transitions::TransitionsPlugin, EcosystemPlugin,
+};
+use crate::menus::{self, UiAction, UiBridge};
+use crate::screens::ScreensPlugin;
+use crate::theme::ThemePlugin;
+
+#[derive(States, Default, Clone, Eq, PartialEq, Debug, Hash)]
+pub enum AppState {
+    #[default]
+    Splash,
+    Loading,
+    Title,
+    InGame,
+}
+
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Paused(pub bool);
+
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OverlayMenu {
+    #[default]
+    None,
+    Settings,
+    Credits,
+    Pause,
+}
+
+#[derive(Resource, Clone)]
+pub struct SharedUi {
+    pub phase: AppState,
+    pub paused: bool,
+    pub overlay: OverlayMenu,
+    pub master_vol: f32,
+    pub sfx_vol: f32,
+    pub music_vol: f32,
+    pub high_score: u32,
+    pub score: u32,
+    pub transition_alpha: f32,
+    pub flash_alpha: f32,
+}
+
+impl Default for SharedUi {
+    fn default() -> Self {
+        Self {
+            phase: AppState::Splash,
+            paused: false,
+            overlay: OverlayMenu::None,
+            master_vol: 1.0,
+            sfx_vol: 1.0,
+            music_vol: 0.8,
+            high_score: 0,
+            score: 0,
+            transition_alpha: 0.0,
+            flash_alpha: 0.0,
+        }
+    }
+}
+
+pub struct AppPlugin;
+
+impl Plugin for AppPlugin {
+    fn build(&self, app: &mut App) {
+        let shared = Arc::new(Mutex::new(SharedUi::default()));
+        let actions = Arc::new(Mutex::new(Vec::<UiAction>::new()));
+        let shared_ui = shared.clone();
+        let actions_ui = actions.clone();
+
+        app.init_state::<AppState>()
+            .insert_resource(Paused(false))
+            .insert_resource(OverlayMenu::None)
+            .insert_resource(UiBridge {
+                shared: shared.clone(),
+                actions: actions.clone(),
+            })
+            .add_plugins(ReposePlugin::with_settings(
+                ReposePluginSettings {
+                    clear_alpha: 0.0,
+                    compose_every_frame: true,
+                    msaa_samples: 1,
+                    overlay: true,
+                },
+                move |_s, _c| {
+                    let st = shared_ui.lock().unwrap().clone();
+                    let acts = actions_ui.clone();
+                    menus::compose_root(st, acts)
+                },
+            ))
+            .add_plugins((
+                ThemePlugin,
+                EcosystemPlugin,
+                AudioPlugin,
+                SavePlugin,
+                GameFeelPlugin,
+                ScreenEffectsPlugin,
+                JuicePlugin,
+                TransitionsPlugin,
+                ScreensPlugin,
+                DemoPlugin,
+                DevToolsPlugin,
+            ))
+            .add_systems(Startup, setup_camera)
+            .add_systems(Update, sync_shared_ui)
+            .add_systems(Update, process_ui_actions)
+            .add_systems(Update, handle_pause_input);
+    }
+}
+
+fn setup_camera(mut commands: Commands) {
+    commands.spawn((
+        Camera2d,
+        Transform::from_xyz(0.0, 0.0, 1000.0),
+        crate::ecosystem::screen_effects::CameraBase {
+            translation: Vec3::new(0.0, 0.0, 1000.0),
+            rotation: 0.0,
+        },
+    ));
+}
+
+fn sync_shared_ui(
+    state: Res<State<AppState>>,
+    paused: Res<Paused>,
+    overlay: Res<OverlayMenu>,
+    bridge: Res<UiBridge>,
+    save: Res<crate::ecosystem::save::SaveData>,
+    score: Option<Res<crate::demo::Score>>,
+    transition: Res<crate::ecosystem::transitions::Transition>,
+    flash: Res<crate::ecosystem::screen_effects::FlashWhite>,
+) {
+    let Ok(mut ui) = bridge.shared.lock() else { return };
+    ui.phase = state.get().clone();
+    ui.paused = paused.0;
+    ui.overlay = *overlay;
+    ui.high_score = save.high_score;
+    ui.score = score.map(|s| s.0).unwrap_or(0);
+    ui.master_vol = save.settings.master_volume;
+    ui.sfx_vol = save.settings.sfx_volume;
+    ui.music_vol = save.settings.music_volume;
+    ui.transition_alpha = transition.overlay_alpha;
+    ui.flash_alpha = flash.amount;
+}
+
+fn process_ui_actions(
+    bridge: Res<UiBridge>,
+    _next_state: ResMut<NextState<AppState>>,
+    mut paused: ResMut<Paused>,
+    mut overlay: ResMut<OverlayMenu>,
+    mut save: ResMut<crate::ecosystem::save::SaveData>,
+    mut exit: MessageWriter<AppExit>,
+    mut transition: ResMut<crate::ecosystem::transitions::Transition>,
+    _time: Res<Time<Virtual>>,
+) {
+    let Ok(mut q) = bridge.actions.lock() else { return };
+    for action in q.drain(..) {
+        match action {
+            UiAction::StartGame => {
+                transition.begin_to_state(AppState::InGame);
+            }
+            UiAction::OpenSettings => *overlay = OverlayMenu::Settings,
+            UiAction::OpenCredits => *overlay = OverlayMenu::Credits,
+            UiAction::CloseOverlay => {
+                if *overlay == OverlayMenu::Pause {
+                    paused.0 = false;
+                }
+                *overlay = OverlayMenu::None;
+            }
+            UiAction::Resume => {
+                paused.0 = false;
+                *overlay = OverlayMenu::None;
+            }
+            UiAction::QuitToTitle => {
+                paused.0 = false;
+                *overlay = OverlayMenu::None;
+                transition.begin_to_state(AppState::Title);
+            }
+            UiAction::QuitApp => {
+                exit.write(AppExit::Success);
+            }
+            UiAction::SetMasterVol(v) => save.settings.master_volume = v.clamp(0.0, 1.0),
+            UiAction::SetSfxVol(v) => save.settings.sfx_volume = v.clamp(0.0, 1.0),
+            UiAction::SetMusicVol(v) => save.settings.music_volume = v.clamp(0.0, 1.0),
+            UiAction::SaveSettings => {
+                let _ = crate::ecosystem::save::SaveManager::save(&save);
+                *overlay = OverlayMenu::None;
+            }
+        }
+    }
+}
+
+fn handle_pause_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    state: Res<State<AppState>>,
+    mut paused: ResMut<Paused>,
+    mut overlay: ResMut<OverlayMenu>,
+    mut virtual_time: ResMut<Time<Virtual>>,
+) {
+    if *state.get() != AppState::InGame {
+        return;
+    }
+    if keys.just_pressed(KeyCode::Escape) {
+        match *overlay {
+            OverlayMenu::None if !paused.0 => {
+                paused.0 = true;
+                *overlay = OverlayMenu::Pause;
+                virtual_time.pause();
+            }
+            OverlayMenu::Pause => {
+                paused.0 = false;
+                *overlay = OverlayMenu::None;
+                virtual_time.unpause();
+            }
+            OverlayMenu::Settings | OverlayMenu::Credits => {
+                if paused.0 {
+                    *overlay = OverlayMenu::Pause;
+                } else {
+                    *overlay = OverlayMenu::None;
+                }
+            }
+            _ => {}
+        }
+    }
+}

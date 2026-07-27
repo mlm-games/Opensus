@@ -1,0 +1,18 @@
+name: my-ecosystem-bevy
+version: '0.1.0'
+summary: Clone of my Godot template for bevy
+description: |
+  A complete Bevy 2D game template with ecosystem plugins,
+  game feel, transitions, audio, save system, and more.
+grade: stable
+confinement: strict
+
+apps:
+  my-ecosystem-bevy:
+    command: my-ecosystem-bevy
+    plugs: [x11, wayland, audio, joystick]
+
+parts:
+  my-ecosystem-bevy:
+    plugin: rust
+    source: .
