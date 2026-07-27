@@ -51,8 +51,9 @@ bevy = { git = "https://github.com/bevyengine/bevy", rev = "fb89a8649d9b359e53ff
     "webgl2",
 ] }
 repose-bevy = { git = "https://github.com/mlm-games/repose-bevy", default-features = false, features = [
-    "offscreen",
+    "shared-device",
 ] }
+wgpu = { version = "30", features = ["webgpu", "webgl"] }
 repose-core = "0.24"
 repose-ui = "0.24"
 repose-render-wgpu = "0.24"
