@@ -20,5 +20,5 @@ jobs:
       run-test: true
       extra-rust-targets: wasm32-unknown-unknown,aarch64-linux-android
       extra-checks: |
-        --target aarch64-linux-android
+        --target aarch64-linux-android --features bevy/android-native-activity
         --features physics
