@@ -4,49 +4,15 @@ on:
   push:
     tags: ["v*"]
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  build-native:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release
-      - uses: actions/upload-artifact@v4
-        with:
-          name: my-ecosystem-bevy-${{ matrix.os }}
-          path: target/release/my-ecosystem-bevy*
-
-  build-web:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --target wasm32-unknown-unknown
-      - run: cp target/wasm32-unknown-unknown/release/my-ecosystem-bevy.wasm .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: my-ecosystem-bevy-web
-          path: my-ecosystem-bevy.wasm
-
-  publish-itch:
-    needs: [build-native, build-web]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-      - uses: josephbmanley/butler-publish-itchio-action@master
-        with:
-          butler_username: mlm-games
-          butler_api_key: ${{ secrets.BUTLER_API_KEY }}
-          game: my-ecosystem-bevy
-          binary: target/release/
-          channel: linux
+  release:
+    uses: mlm-games/ci/.github/workflows/rust-app-release.yml@main
+    with:
+      working-directory: .
+      bin-name: my-ecosystem-bevy
+      app-slug: my-ecosystem-bevy
+      system-deps-linux: libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      include-web: true
+      itch-username: mlm-games
+      itch-game: my-ecosystem-bevy
+    secrets: inherit

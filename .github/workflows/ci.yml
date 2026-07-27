@@ -10,35 +10,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install Linux deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends \
-            libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
-      - run: cargo check --workspace --all-targets
-      - run: cargo check --features physics
-      - run: cargo check --target wasm32-unknown-unknown --no-default-features
-      # - run: cargo check --target aarch64-linux-android
-      - run: cargo test --workspace --all-targets
-
-  lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install Linux deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends \
-            libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
-      # - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo fmt --all -- --check
+  ci:
+    uses: mlm-games/ci/.github/workflows/rust-app-ci.yml@main
+    with:
+      system-deps-linux: libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      run-clippy: false
+      run-fmt: true
+      run-test: true
+      extra-rust-targets: wasm32-unknown-unknown,aarch64-linux-android
+      extra-checks: |
+        --target aarch64-linux-android
+        --features physics

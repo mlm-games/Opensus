@@ -1,0 +1,16 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pages:
+    uses: mlm-games/ci/.github/workflows/pages.yml@main
+    with:
+      working-directory: .
+    secrets: inherit
