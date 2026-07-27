@@ -30,7 +30,9 @@ impl ObjectPool {
     ) -> Option<Entity> {
         if let Some(e) = pool.available.pop_front() {
             pool.active.push(e);
-            commands.entity(e).insert((Visibility::Visible, M::default()));
+            commands
+                .entity(e)
+                .insert((Visibility::Visible, M::default()));
             return Some(e);
         }
         if pool.active.len() >= pool.max_size {

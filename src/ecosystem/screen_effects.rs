@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use rand::Rng;
+use rand::RngExt;
 
 #[derive(Resource, Default)]
 pub struct Trauma(pub f32);
@@ -76,15 +76,15 @@ fn apply_trauma_shake(
     mut trauma: ResMut<Trauma>,
     mut q: Query<(&mut Transform, &CameraBase), With<Camera2d>>,
 ) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let t = trauma.0;
     let shake_pow = t * t;
     for (mut tf, base) in &mut q {
         if shake_pow > 0.001 {
             let mag = shake_pow * 12.0;
-            let ox = rng.gen_range(-mag..mag);
-            let oy = rng.gen_range(-mag..mag);
-            let rot = rng.gen_range(-0.05..0.05) * shake_pow;
+            let ox = rng.random_range(-mag..mag);
+            let oy = rng.random_range(-mag..mag);
+            let rot = rng.random_range(-0.05..0.05) * shake_pow;
             tf.translation = base.translation + Vec3::new(ox, oy, 0.0);
             tf.rotation = Quat::from_rotation_z(base.rotation + rot);
         } else {
@@ -102,7 +102,9 @@ fn tick_flash(real: Res<Time<Real>>, mut flash: ResMut<FlashWhite>) {
     flash.timer.tick(real.delta());
     let t = flash.timer.fraction();
     flash.amount = 1.0 - t;
-    if flash.timer.just_finished() || flash.timer.elapsed_secs() >= flash.timer.duration().as_secs_f32() {
+    if flash.timer.just_finished()
+        || flash.timer.elapsed_secs() >= flash.timer.duration().as_secs_f32()
+    {
         flash.amount = 0.0;
     }
 }

@@ -6,8 +6,8 @@ use repose_bevy::{ReposePlugin, ReposePluginSettings};
 use crate::demo::DemoPlugin;
 use crate::dev_tools::DevToolsPlugin;
 use crate::ecosystem::{
-    audio::AudioPlugin, game_feel::GameFeelPlugin, juice::JuicePlugin, save::SavePlugin,
-    screen_effects::ScreenEffectsPlugin, transitions::TransitionsPlugin, EcosystemPlugin,
+    EcosystemPlugin, audio::AudioPlugin, game_feel::GameFeelPlugin, juice::JuicePlugin,
+    save::SavePlugin, screen_effects::ScreenEffectsPlugin, transitions::TransitionsPlugin,
 };
 use crate::menus::{self, UiAction, UiBridge};
 use crate::screens::ScreensPlugin;
@@ -135,7 +135,9 @@ fn sync_shared_ui(
     transition: Res<crate::ecosystem::transitions::Transition>,
     flash: Res<crate::ecosystem::screen_effects::FlashWhite>,
 ) {
-    let Ok(mut ui) = bridge.shared.lock() else { return };
+    let Ok(mut ui) = bridge.shared.lock() else {
+        return;
+    };
     ui.phase = state.get().clone();
     ui.paused = paused.0;
     ui.overlay = *overlay;
@@ -158,7 +160,9 @@ fn process_ui_actions(
     mut transition: ResMut<crate::ecosystem::transitions::Transition>,
     _time: Res<Time<Virtual>>,
 ) {
-    let Ok(mut q) = bridge.actions.lock() else { return };
+    let Ok(mut q) = bridge.actions.lock() else {
+        return;
+    };
     for action in q.drain(..) {
         match action {
             UiAction::StartGame => {

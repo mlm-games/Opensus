@@ -92,7 +92,9 @@ fn animate_juice(
 
     for (e, mut pop, mut tf) in set.p0().iter_mut() {
         pop.delay.tick(dt);
-        if !pop.delay.just_finished() && pop.delay.elapsed_secs() < pop.delay.duration().as_secs_f32() {
+        if !pop.delay.just_finished()
+            && pop.delay.elapsed_secs() < pop.delay.duration().as_secs_f32()
+        {
             tf.scale = Vec3::splat(0.0);
             continue;
         }
@@ -117,11 +119,12 @@ fn animate_juice(
         let orig = sq.original.unwrap_or(Vec3::ONE);
         if t < 0.5 {
             let u = t / 0.5;
-            tf.scale = orig * Vec3::new(
-                1.0 + (sq.amount.x - 1.0) * u,
-                1.0 + (sq.amount.y - 1.0) * u,
-                1.0,
-            );
+            tf.scale = orig
+                * Vec3::new(
+                    1.0 + (sq.amount.x - 1.0) * u,
+                    1.0 + (sq.amount.y - 1.0) * u,
+                    1.0,
+                );
         } else {
             let u = (t - 0.5) / 0.5;
             let a = Vec3::new(sq.amount.x, sq.amount.y, 1.0);
@@ -161,12 +164,11 @@ fn animate_juice(
         sh.timer.tick(dt);
         let decay = 1.0 - sh.timer.fraction();
         let o = sh.original.unwrap_or_default();
-        tf.translation = o
-            + Vec3::new(
-                (elapsed * 50.0).sin() * sh.intensity * decay,
-                (elapsed * 47.0).cos() * sh.intensity * decay,
-                0.0,
-            );
+        tf.translation = o + Vec3::new(
+            (elapsed * 50.0).sin() * sh.intensity * decay,
+            (elapsed * 47.0).cos() * sh.intensity * decay,
+            0.0,
+        );
         if sh.timer.just_finished() {
             tf.translation = o;
             commands.entity(e).remove::<Shake>();

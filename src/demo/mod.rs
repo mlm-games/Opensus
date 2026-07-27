@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use rand::Rng;
+use rand::RngExt;
 
 use crate::app::{AppState, Paused};
 use crate::ecosystem::game_feel::GameFeel;
@@ -83,7 +83,9 @@ fn player_move(
     keys: Res<ButtonInput<KeyCode>>,
     mut q: Query<(&Player, &mut Transform)>,
 ) {
-    let Ok((p, mut tf)) = q.single_mut() else { return };
+    let Ok((p, mut tf)) = q.single_mut() else {
+        return;
+    };
     let mut d = Vec2::ZERO;
     if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
         d.y += 1.0;
@@ -111,7 +113,9 @@ fn player_shoot(
     mut commands: Commands,
     mut q: Query<(Entity, &mut Player, &Transform)>,
 ) {
-    let Ok((e, mut p, tf)) = q.single_mut() else { return };
+    let Ok((e, mut p, tf)) = q.single_mut() else {
+        return;
+    };
     p.cooldown.tick(time.delta());
     let fire = mouse.pressed(MouseButton::Left) || keys.pressed(KeyCode::Space);
     if fire && p.cooldown.just_finished() {
@@ -146,11 +150,7 @@ fn move_bullets(
     }
 }
 
-fn spawn_enemies(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut timer: Local<f32>,
-) {
+fn spawn_enemies(mut commands: Commands, time: Res<Time>, mut timer: Local<f32>) {
     *timer -= time.delta_secs();
     if *timer > 0.0 {
         return;
@@ -161,7 +161,9 @@ fn spawn_enemies(
     let e = commands
         .spawn((
             DemoCleanup,
-            Enemy { speed: rng.random_range(60.0..140.0) },
+            Enemy {
+                speed: rng.random_range(60.0..140.0),
+            },
             Sprite {
                 color: Color::srgb(1.0, 0.35, 0.35),
                 custom_size: Some(Vec2::splat(24.0)),
@@ -189,7 +191,12 @@ fn bullet_enemy_collision(
 ) {
     for (be, bt) in &bullets {
         for (ee, et) in &enemies {
-            if bt.translation.truncate().distance(et.translation.truncate()) < 18.0 {
+            if bt
+                .translation
+                .truncate()
+                .distance(et.translation.truncate())
+                < 18.0
+            {
                 commands.entity(be).despawn();
                 commands.entity(ee).despawn();
                 score.0 += 10;

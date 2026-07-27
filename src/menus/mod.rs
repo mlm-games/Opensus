@@ -1,9 +1,7 @@
 use std::sync::{Arc, Mutex};
 
-use repose_core::prelude::{
-    AlignItems, Color as RColor, JustifyContent, Modifier,
-};
 use repose_core::View;
+use repose_core::prelude::{AlignItems, Color as RColor, JustifyContent, Modifier};
 use repose_ui::{Column, Row, Stack, Text as RText, TextStyle, ViewExt};
 
 use crate::app::{AppState, OverlayMenu, SharedUi};
@@ -47,21 +45,15 @@ pub fn compose_root(st: SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         AppState::InGame => {
             let hud = ingame_hud(&st);
             match st.overlay {
-                OverlayMenu::Pause => {
-                    Stack(Modifier::new().fill_max_size())
-                        .child(hud)
-                        .child(pause_overlay(actions.clone()))
-                }
-                OverlayMenu::Settings => {
-                    Stack(Modifier::new().fill_max_size())
-                        .child(hud)
-                        .child(settings_ui(&st, actions.clone()))
-                }
-                OverlayMenu::Credits => {
-                    Stack(Modifier::new().fill_max_size())
-                        .child(hud)
-                        .child(credits_ui(actions.clone()))
-                }
+                OverlayMenu::Pause => Stack(Modifier::new().fill_max_size())
+                    .child(hud)
+                    .child(pause_overlay(actions.clone())),
+                OverlayMenu::Settings => Stack(Modifier::new().fill_max_size())
+                    .child(hud)
+                    .child(settings_ui(&st, actions.clone())),
+                OverlayMenu::Credits => Stack(Modifier::new().fill_max_size())
+                    .child(hud)
+                    .child(credits_ui(actions.clone())),
                 OverlayMenu::None => hud,
             }
         }
@@ -71,8 +63,16 @@ pub fn compose_root(st: SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         let fade_a = (st.transition_alpha.clamp(0.0, 1.0) * 255.0) as u8;
         let flash_a = (st.flash_alpha.clamp(0.0, 1.0) * 255.0) as u8;
         root.child(content)
-            .child(Column(Modifier::new().fill_max_size().background(RColor::from_rgba(0, 0, 0, fade_a))))
-            .child(Column(Modifier::new().fill_max_size().background(RColor::from_rgba(255, 255, 255, flash_a))))
+            .child(Column(
+                Modifier::new()
+                    .fill_max_size()
+                    .background(RColor::from_rgba(0, 0, 0, fade_a)),
+            ))
+            .child(Column(
+                Modifier::new()
+                    .fill_max_size()
+                    .background(RColor::from_rgba(255, 255, 255, flash_a)),
+            ))
     } else {
         root.child(content)
     }
@@ -116,10 +116,18 @@ fn title_ui(actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     .child((
         RText("My Ecosystem Bevy").size(56.0).color(RColor::WHITE),
         spacer(24.0),
-        mk_button("Start Game", col(60, 120, 200), move || push(&a1, UiAction::StartGame)),
-        mk_button("Settings", col(70, 70, 90), move || push(&a2, UiAction::OpenSettings)),
-        mk_button("Credits", col(70, 70, 90), move || push(&a3, UiAction::OpenCredits)),
-        mk_button("Quit", col(180, 60, 60), move || push(&a4, UiAction::QuitApp)),
+        mk_button("Start Game", col(60, 120, 200), move || {
+            push(&a1, UiAction::StartGame)
+        }),
+        mk_button("Settings", col(70, 70, 90), move || {
+            push(&a2, UiAction::OpenSettings)
+        }),
+        mk_button("Credits", col(70, 70, 90), move || {
+            push(&a3, UiAction::OpenCredits)
+        }),
+        mk_button("Quit", col(180, 60, 60), move || {
+            push(&a4, UiAction::QuitApp)
+        }),
     ))
 }
 
@@ -138,7 +146,11 @@ fn pause_overlay(actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     .child(pause_panel(a1, a2, a3))
 }
 
-fn pause_panel(a1: Arc<Mutex<Vec<UiAction>>>, a2: Arc<Mutex<Vec<UiAction>>>, a3: Arc<Mutex<Vec<UiAction>>>) -> View {
+fn pause_panel(
+    a1: Arc<Mutex<Vec<UiAction>>>,
+    a2: Arc<Mutex<Vec<UiAction>>>,
+    a3: Arc<Mutex<Vec<UiAction>>>,
+) -> View {
     Column(
         Modifier::new()
             .width(320.0)
@@ -150,9 +162,15 @@ fn pause_panel(a1: Arc<Mutex<Vec<UiAction>>>, a2: Arc<Mutex<Vec<UiAction>>>, a3:
     .child((
         RText("Paused").size(36.0).color(RColor::WHITE),
         spacer(16.0),
-        mk_button("Resume", col(60, 140, 90), move || push(&a1, UiAction::Resume)),
-        mk_button("Settings", col(70, 70, 90), move || push(&a2, UiAction::OpenSettings)),
-        mk_button("Quit to Title", col(180, 60, 60), move || push(&a3, UiAction::QuitToTitle)),
+        mk_button("Resume", col(60, 140, 90), move || {
+            push(&a1, UiAction::Resume)
+        }),
+        mk_button("Settings", col(70, 70, 90), move || {
+            push(&a2, UiAction::OpenSettings)
+        }),
+        mk_button("Quit to Title", col(180, 60, 60), move || {
+            push(&a3, UiAction::QuitToTitle)
+        }),
     ))
 }
 
@@ -176,20 +194,36 @@ fn settings_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     )
     .child(RText("Settings").size(36.0).color(RColor::WHITE))
     .child(spacer(12.0))
-    .child(RText(format!("Master: {:.0}%", master * 100.0)).size(18.0).color(RColor::WHITE))
+    .child(
+        RText(format!("Master: {:.0}%", master * 100.0))
+            .size(18.0)
+            .color(RColor::WHITE),
+    )
     .child(Row(Modifier::new().gap(8.0)).child((
-        mk_button_sm("-", move || push(&a_m_down, UiAction::SetMasterVol(master - 0.1))),
-        mk_button_sm("+", move || push(&a_m_up, UiAction::SetMasterVol(master + 0.1))),
+        mk_button_sm("-", move || {
+            push(&a_m_down, UiAction::SetMasterVol(master - 0.1))
+        }),
+        mk_button_sm("+", move || {
+            push(&a_m_up, UiAction::SetMasterVol(master + 0.1))
+        }),
     )))
     .child(spacer(8.0))
-    .child(RText(format!("SFX: {:.0}%", sfx * 100.0)).size(18.0).color(RColor::WHITE))
+    .child(
+        RText(format!("SFX: {:.0}%", sfx * 100.0))
+            .size(18.0)
+            .color(RColor::WHITE),
+    )
     .child(Row(Modifier::new().gap(8.0)).child((
         mk_button_sm("-", move || push(&a_s_down, UiAction::SetSfxVol(sfx - 0.1))),
         mk_button_sm("+", move || push(&a_s_up, UiAction::SetSfxVol(sfx + 0.1))),
     )))
     .child(spacer(16.0))
-    .child(mk_button("Save", col(60, 120, 200), move || push(&a_save, UiAction::SaveSettings)))
-    .child(mk_button("Back", col(70, 70, 90), move || push(&a_back, UiAction::CloseOverlay)));
+    .child(mk_button("Save", col(60, 120, 200), move || {
+        push(&a_save, UiAction::SaveSettings)
+    }))
+    .child(mk_button("Back", col(70, 70, 90), move || {
+        push(&a_back, UiAction::CloseOverlay)
+    }));
 
     Column(
         Modifier::new()
@@ -214,11 +248,19 @@ fn credits_ui(actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     .child((
         RText("Credits").size(36.0).color(RColor::WHITE),
         spacer(12.0),
-        RText("Original Godot template: mlm-games").size(16.0).color(RColor::WHITE),
-        RText("Bevy + Repose port: mlm-games").size(16.0).color(RColor::WHITE),
-        RText("Engine: Bevy  UI: Repose").size(16.0).color(RColor::WHITE),
+        RText("Original Godot template: mlm-games")
+            .size(16.0)
+            .color(RColor::WHITE),
+        RText("Bevy + Repose port: mlm-games")
+            .size(16.0)
+            .color(RColor::WHITE),
+        RText("Engine: Bevy  UI: Repose")
+            .size(16.0)
+            .color(RColor::WHITE),
         spacer(16.0),
-        mk_button("Back", col(70, 70, 90), move || push(&a, UiAction::CloseOverlay)),
+        mk_button("Back", col(70, 70, 90), move || {
+            push(&a, UiAction::CloseOverlay)
+        }),
     ));
 
     Column(
@@ -240,9 +282,15 @@ fn ingame_hud(st: &SharedUi) -> View {
             .justify_content(JustifyContent::FLEX_START),
     )
     .child((
-        RText(format!("Score: {}", st.score)).size(22.0).color(RColor::WHITE),
-        RText(format!("Best: {}", st.high_score)).size(16.0).color(col(200, 200, 200)),
-        RText("WASD move  Click/Space shoot  Esc pause").size(14.0).color(col(180, 180, 180)),
+        RText(format!("Score: {}", st.score))
+            .size(22.0)
+            .color(RColor::WHITE),
+        RText(format!("Best: {}", st.high_score))
+            .size(16.0)
+            .color(col(200, 200, 200)),
+        RText("WASD move  Click/Space shoot  Esc pause")
+            .size(14.0)
+            .color(col(180, 180, 180)),
     ))
 }
 

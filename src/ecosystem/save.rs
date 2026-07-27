@@ -39,7 +39,8 @@ pub struct SaveManager;
 
 impl SaveManager {
     fn path() -> PathBuf {
-        if let Some(proj) = directories::ProjectDirs::from("com", "mlm-games", "my-ecosystem-bevy") {
+        if let Some(proj) = directories::ProjectDirs::from("com", "mlm-games", "my-ecosystem-bevy")
+        {
             let dir = proj.data_dir();
             let _ = fs::create_dir_all(dir);
             dir.join("save.ron")
@@ -73,16 +74,11 @@ pub struct SavePlugin;
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
         let data = SaveManager::load();
-        app.insert_resource(data)
-            .add_systems(Update, hotkeys);
+        app.insert_resource(data).add_systems(Update, hotkeys);
     }
 }
 
-fn hotkeys(
-    keys: Res<ButtonInput<KeyCode>>,
-    save: Res<SaveData>,
-    mut commands: Commands,
-) {
+fn hotkeys(keys: Res<ButtonInput<KeyCode>>, save: Res<SaveData>, mut commands: Commands) {
     if keys.just_pressed(KeyCode::F5) {
         if let Err(e) = SaveManager::save(&save) {
             bevy::log::warn!("Save failed: {e}");

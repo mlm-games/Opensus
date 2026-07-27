@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use rand::Rng;
+use rand::RngExt;
 
 #[derive(Resource, Default)]
 pub struct AudioM;
@@ -18,8 +18,8 @@ impl AudioM {
         volume: f32,
         pitch_var: f32,
     ) {
-        let mut rng = rand::thread_rng();
-        let pitch = 1.0 + rng.gen_range(-pitch_var..pitch_var);
+        let mut rng = rand::rng();
+        let pitch = 1.0 + rng.random_range(-pitch_var..pitch_var);
         commands.spawn((
             AudioPlayer::new(handle),
             PlaybackSettings::DESPAWN
