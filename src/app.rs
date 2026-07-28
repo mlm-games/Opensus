@@ -34,6 +34,9 @@ pub enum OverlayMenu {
     Pause,
 }
 
+#[derive(Resource, Default)]
+pub struct PendingUnpause(pub Option<Timer>);
+
 #[derive(Resource, Clone)]
 pub struct SharedUi {
     pub phase: AppState,
@@ -77,6 +80,7 @@ impl Plugin for AppPlugin {
         app.init_state::<AppState>()
             .insert_resource(Paused(false))
             .insert_resource(OverlayMenu::None)
+            .insert_resource(PendingUnpause(None))
             .insert_resource(UiBridge {
                 shared: shared.clone(),
                 actions: actions.clone(),
@@ -108,9 +112,17 @@ impl Plugin for AppPlugin {
                 DevToolsPlugin,
             ))
             .add_systems(Startup, setup_camera)
-            .add_systems(Update, sync_shared_ui)
-            .add_systems(Update, process_ui_actions)
-            .add_systems(Update, handle_pause_input);
+            .add_systems(
+                Update,
+                (
+                    sync_shared_ui,
+                    process_ui_actions,
+                    handle_pause_input,
+                    tick_pending_unpause,
+                    sync_virtual_time_with_pause,
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -150,15 +162,31 @@ fn sync_shared_ui(
     ui.flash_alpha = flash.amount;
 }
 
+fn tick_pending_unpause(
+    real: Res<Time<Real>>,
+    mut pending: ResMut<PendingUnpause>,
+    mut paused: ResMut<Paused>,
+    mut virtual_time: ResMut<Time<Virtual>>,
+) {
+    let Some(timer) = pending.0.as_mut() else {
+        return;
+    };
+    if timer.tick(real.delta()).just_finished() {
+        pending.0 = None;
+        paused.0 = false;
+        virtual_time.unpause();
+    }
+}
+
 fn process_ui_actions(
     bridge: Res<UiBridge>,
-    _next_state: ResMut<NextState<AppState>>,
     mut paused: ResMut<Paused>,
     mut overlay: ResMut<OverlayMenu>,
     mut save: ResMut<crate::ecosystem::save::SaveData>,
     mut exit: MessageWriter<AppExit>,
     mut transition: ResMut<crate::ecosystem::transitions::Transition>,
-    _time: Res<Time<Virtual>>,
+    mut virtual_time: ResMut<Time<Virtual>>,
+    mut pending_unpause: ResMut<PendingUnpause>,
 ) {
     let Ok(mut q) = bridge.actions.lock() else {
         return;
@@ -171,18 +199,29 @@ fn process_ui_actions(
             UiAction::OpenSettings => *overlay = OverlayMenu::Settings,
             UiAction::OpenCredits => *overlay = OverlayMenu::Credits,
             UiAction::CloseOverlay => {
-                if *overlay == OverlayMenu::Pause {
-                    paused.0 = false;
+                match *overlay {
+                    OverlayMenu::Settings | OverlayMenu::Credits if paused.0 => {
+                        *overlay = OverlayMenu::Pause;
+                    }
+                    OverlayMenu::Pause if paused.0 => {
+                        *overlay = OverlayMenu::None;
+                        pending_unpause.0 =
+                            Some(Timer::from_seconds(0.22, TimerMode::Once));
+                    }
+                    _ => {
+                        *overlay = OverlayMenu::None;
+                    }
                 }
-                *overlay = OverlayMenu::None;
             }
             UiAction::Resume => {
-                paused.0 = false;
                 *overlay = OverlayMenu::None;
+                pending_unpause.0 = Some(Timer::from_seconds(0.22, TimerMode::Once));
             }
             UiAction::QuitToTitle => {
                 paused.0 = false;
                 *overlay = OverlayMenu::None;
+                pending_unpause.0 = None;
+                virtual_time.unpause();
                 transition.begin_to_state(AppState::Title);
             }
             UiAction::QuitApp => {
@@ -193,7 +232,11 @@ fn process_ui_actions(
             UiAction::SetMusicVol(v) => save.settings.music_volume = v.clamp(0.0, 1.0),
             UiAction::SaveSettings => {
                 let _ = crate::ecosystem::save::SaveManager::save(&save);
-                *overlay = OverlayMenu::None;
+                if paused.0 {
+                    *overlay = OverlayMenu::Pause;
+                } else {
+                    *overlay = OverlayMenu::None;
+                }
             }
         }
     }
@@ -205,30 +248,42 @@ fn handle_pause_input(
     mut paused: ResMut<Paused>,
     mut overlay: ResMut<OverlayMenu>,
     mut virtual_time: ResMut<Time<Virtual>>,
+    mut pending_unpause: ResMut<PendingUnpause>,
 ) {
     if *state.get() != AppState::InGame {
         return;
     }
-    if keys.just_pressed(KeyCode::Escape) {
-        match *overlay {
-            OverlayMenu::None if !paused.0 => {
-                paused.0 = true;
-                *overlay = OverlayMenu::Pause;
-                virtual_time.pause();
-            }
-            OverlayMenu::Pause => {
-                paused.0 = false;
-                *overlay = OverlayMenu::None;
-                virtual_time.unpause();
-            }
-            OverlayMenu::Settings | OverlayMenu::Credits => {
-                if paused.0 {
-                    *overlay = OverlayMenu::Pause;
-                } else {
-                    *overlay = OverlayMenu::None;
-                }
-            }
-            _ => {}
+    if !keys.just_pressed(KeyCode::Escape) {
+        return;
+    }
+    match *overlay {
+        OverlayMenu::None if !paused.0 => {
+            paused.0 = true;
+            *overlay = OverlayMenu::Pause;
+            virtual_time.pause();
+            pending_unpause.0 = None;
         }
+        OverlayMenu::Pause => {
+            *overlay = OverlayMenu::None;
+            pending_unpause.0 = Some(Timer::from_seconds(0.22, TimerMode::Once));
+        }
+        OverlayMenu::Settings | OverlayMenu::Credits => {
+            if paused.0 {
+                *overlay = OverlayMenu::Pause;
+            } else {
+                *overlay = OverlayMenu::None;
+            }
+        }
+        _ => {}
+    }
+}
+
+fn sync_virtual_time_with_pause(paused: Res<Paused>, mut virtual_time: ResMut<Time<Virtual>>) {
+    if paused.0 {
+        if !virtual_time.is_paused() {
+            virtual_time.pause();
+        }
+    } else if virtual_time.is_paused() {
+        virtual_time.unpause();
     }
 }
