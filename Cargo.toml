@@ -57,6 +57,7 @@ bevy = { git = "https://github.com/bevyengine/bevy", rev = "fb89a8649d9b359e53ff
     "bevy_clipboard",
     "custom_cursor",
     "webgl2",
+    "android-native-activity",
 ] }
 repose-bevy = { git = "https://github.com/mlm-games/repose-bevy", default-features = false, features = [
     "shared-device",
