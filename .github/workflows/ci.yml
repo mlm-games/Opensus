@@ -22,3 +22,5 @@ jobs:
         --target wasm32-unknown-unknown --no-default-features
         --features physics
       include-android: true
+      upload-artifacts: true
+      app-slug: my-ecosystem-bevy
