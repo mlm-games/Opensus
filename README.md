@@ -4,18 +4,18 @@ A WIP Bevy 2D game template with ecosystem plugins ported from [my-ecosystem-tem
 
 ## Features
 
-- **Game Feel** — recoil, knockback, slow-motion, rumble
-- **Screen Effects** — trauma shake, freeze frame, flash, chromatic aberration
-- **Transitions** — fade to black, circle wipe scene transitions
-- **Audio** — channel-based SFX/Music/UI with volume control
-- **Save System** — persistent save via `bevy_pkv` + backup
-- **Object Pooling** — generic entity pool with acquire/release
-- **Juice** — pop-in, squash & stretch, shake animations
-- **UI** — animated buttons, popup system, pause/settings/credits
-- **States** — Splash → Loading → Title → InGame with pause state
-- **Theme** — centralized color/font constants
-- **Dev Tools** — FPS overlay, state logging (dev feature)
-- **Demo Scene** — player with shooting, enemies, trauma, recoil
+- **Game Feel** - recoil, knockback, slow-motion, rumble
+- **Screen Effects** - trauma shake, freeze frame, flash, chromatic aberration
+- **Transitions** - fade to black, circle wipe scene transitions
+- **Audio** - channel-based SFX/Music/UI with volume control
+- **Save System** - persistent save via `bevy_pkv` + backup
+- **Object Pooling** - generic entity pool with acquire/release
+- **Juice** - pop-in, squash & stretch, shake animations
+- **UI** - animated buttons, popup system, pause/settings/credits
+- **States** - Splash -> Loading -> Title -> InGame with pause state
+- **Theme** - centralized color/font constants
+- **Dev Tools** - FPS overlay, state logging (dev feature)
+- **Demo Scene** - player with shooting, enemies, trauma, recoil
 
 ## Quick Start
 
