@@ -61,7 +61,7 @@ dependencies = [
  "accesskit_consumer",
  "hashbrown 0.16.1",
  "objc2 0.5.2",
- "objc2-app-kit",
+ "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
 ]
 
@@ -2835,16 +2835,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "core-foundation"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2a6cd9ae233e7f62ba4e9353e81a88df7fc8a5987b8d445b4d90c879bd156f6"
-dependencies = [
- "core-foundation-sys",
- "libc",
-]
-
-[[package]]
 name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2857,7 +2847,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c07782be35f9e1140080c6b96f0d44b739e2278479f64e02fdab4e32dfd8b081"
 dependencies = [
  "bitflags 1.3.2",
- "core-foundation 0.9.4",
+ "core-foundation",
  "core-graphics-types",
  "foreign-types",
  "libc",
@@ -2870,7 +2860,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45390e6114f68f718cc7a830514a96f903cccd70d02a8f6d9f643ac4ba45afaf"
 dependencies = [
  "bitflags 1.3.2",
- "core-foundation 0.9.4",
+ "core-foundation",
  "libc",
 ]
 
@@ -3120,13 +3110,13 @@ dependencies = [
 
 [[package]]
 name = "displaydoc"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ac70aa55017e108007fbaf5aa0f54b021c98f92ff8af59d42eda9da96e3dd4f"
+checksum = "c6232dd377dcc64799954cbd3a9bb882e9cdc1308ccd87b1c098f1fb2eaf82a8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -4174,7 +4164,7 @@ dependencies = [
  "bitflags 2.13.1",
  "libc",
  "plain",
- "redox_syscall 0.9.0",
+ "redox_syscall 0.9.1",
 ]
 
 [[package]]
@@ -4622,6 +4612,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-app-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
+dependencies = [
+ "bitflags 2.13.1",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
+]
+
+[[package]]
 name = "objc2-audio-toolbox"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4815,7 +4816,7 @@ checksum = "a1a1ae721c5e35be65f01a03b6d2ac13a54cb4fa70d8a5da293d7b0020261398"
 dependencies = [
  "block2 0.5.1",
  "objc2 0.5.2",
- "objc2-app-kit",
+ "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
 ]
 
@@ -5532,9 +5533,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5102a6aaa05aa011a238e178e6bca86d2cb56fc9f586d37cb80f5bca6e07759"
+checksum = "07507be7b4a5f9f26eeb41eeaebb1f5a7ff29dfb29739facc21d35bf8b11c21e"
 dependencies = [
  "bitflags 2.13.1",
 ]
@@ -5587,9 +5588,9 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "repose-app"
-version = "0.24.4"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bec5fd319b6aa8d7ec14f3a2380b9dbe6750f20fe8e3339c7b721b9c9124cc1"
+checksum = "75978838d72e061633c19a47006df31c8781a0a926b58e2b08d4ec4b57167971"
 dependencies = [
  "log",
  "repose-core",
@@ -5602,7 +5603,7 @@ dependencies = [
 [[package]]
 name = "repose-bevy"
 version = "0.2.0"
-source = "git+https://github.com/mlm-games/repose-bevy#1d2d67f7fcfb69dc141fac185ec7d1512a633fff"
+source = "git+https://github.com/mlm-games/repose-bevy#ad21917878a4437ed00a37d9fd62aa495277c8a9"
 dependencies = [
  "anyhow",
  "bevy 0.20.0-dev",
@@ -5620,9 +5621,9 @@ dependencies = [
 
 [[package]]
 name = "repose-core"
-version = "0.24.4"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2abf930c3a967798de189c5b3bd048629e6f75e90494021713d79fca424226d"
+checksum = "99479e8f8a01763e2483c23ef304b9bdd44db7802bca826f7e3c7fdc20e695ad"
 dependencies = [
  "bitflags 2.13.1",
  "log",
@@ -5638,9 +5639,9 @@ dependencies = [
 
 [[package]]
 name = "repose-macros"
-version = "0.24.4"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74e4b6d155e57ce9b37c9e3c02a978bd8bc00be9ffeaf8f5ed837c3b132ef487"
+checksum = "348d56afeb8401c2e7d8bcc3a442179adbe8416f57343fc5c989c8533c4a1624"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5649,9 +5650,9 @@ dependencies = [
 
 [[package]]
 name = "repose-render-wgpu"
-version = "0.24.4"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fec4da6e31a0c40db25d3645b407df326141951e1df6888abb5f7b19b9ed7a40"
+checksum = "3616f6c52c9c79d188b4d74ac5ccc4e2ca51e6b3b1e37b35435503c8eb671626"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -5668,9 +5669,9 @@ dependencies = [
 
 [[package]]
 name = "repose-text"
-version = "0.24.4"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10de1cb60bb1bb4c1961af308b5a6875fe24290bc05d472dcf417a3d410d7b4c"
+checksum = "a9ebb3d01a4f807f357742064e4858b83eb55279be95454ec81b7ded91b0be60"
 dependencies = [
  "font-awl",
  "log",
@@ -5684,9 +5685,9 @@ dependencies = [
 
 [[package]]
 name = "repose-tree"
-version = "0.24.4"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67e0c0378f3421c17976300fa14e4dabada9f4df59d4923be30fd8c95a22bc48"
+checksum = "b45f28400e885c32cc5737cc4a1b88e0a23a15bd326ff5b35089be7c26ab3671"
 dependencies = [
  "log",
  "rapidhash",
@@ -5698,9 +5699,9 @@ dependencies = [
 
 [[package]]
 name = "repose-ui"
-version = "0.24.4"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0ba784134cee988bf63d7ad143293bee70969f0858e1eb873f56de806234f12"
+checksum = "0343b1ed840c0a0e390e4ba2022128960f5b2003decee773050017dd03f67c8f"
 dependencies = [
  "log",
  "repose-core",
@@ -6780,15 +6781,15 @@ dependencies = [
 
 [[package]]
 name = "webbrowser"
-version = "1.2.1"
+version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fc95580916af1e68ff6a7be07446fc5db73ebf71cf092de939bbf5f7e189f72"
+checksum = "ef62a3d5f7b2411119a11b6f62570dbff91d7105e011a20fb83fbf8f5761c40f"
 dependencies = [
- "core-foundation 0.10.1",
  "jni 0.22.4",
  "log",
  "ndk-context",
  "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "url",
  "web-sys",
@@ -7424,7 +7425,7 @@ dependencies = [
  "calloop",
  "cfg_aliases",
  "concurrent-queue",
- "core-foundation 0.9.4",
+ "core-foundation",
  "core-graphics",
  "cursor-icon",
  "dpi",
@@ -7433,7 +7434,7 @@ dependencies = [
  "memmap2",
  "ndk",
  "objc2 0.5.2",
- "objc2-app-kit",
+ "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
  "objc2-ui-kit",
  "orbclient",
