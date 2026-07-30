@@ -23,6 +23,14 @@ default = ["dev_native"]
 dev = []
 dev_native = ["dev"]
 physics = ["dep:avian2d"]
+# Big-game optional crates (check note below)
+# Keep commented until compatible to avoid breakage.
+# input_manager = ["dep:leafwing-input-manager"]
+# hanabi = ["dep:bevy_hanabi"]
+# pkv = ["dep:bevy_pkv"]
+# asset_loader = ["dep:bevy_asset_loader"]
+# inspector = ["dep:bevy-inspector-egui"]
+# kira_audio = ["dep:bevy_kira_audio"]
 
 [dependencies]
 bevy = { git = "https://github.com/bevyengine/bevy", rev = "fb89a8649d9b359e53ffb6e5492ebb7c059ac8af", default-features = false, features = [
@@ -78,6 +86,13 @@ avian2d = { git = "https://github.com/avianphysics/avian", optional = true, defa
     "parry-f32",
     "parallel",
 ] }
+# Optional big-game crates (pull in bevy-0.19)
+# leafwing-input-manager = { version = "0.14", optional = true, default-features = false, features = [] }
+# bevy_hanabi = { version = "0.14", optional = true, default-features = false, features = ["2d"] }
+# bevy_pkv = { version = "0.13", optional = true }
+# bevy_asset_loader = { version = "0.22", optional = true, default-features = false, features = ["standard"] }
+# bevy-inspector-egui = { version = "0.28", optional = true }
+# bevy_kira_audio = { version = "0.18", optional = true }
 
 [target.'cfg(all(target_family = "wasm", any(target_os = "unknown", target_os = "none")))'.dependencies]
 wasm-bindgen = "0.2"
