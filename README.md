@@ -4,18 +4,22 @@ A WIP Bevy 2D game template with ecosystem plugins ported from [my-ecosystem-tem
 
 ## Features
 
-- **Game Feel** - recoil, knockback, slow-motion, rumble
-- **Screen Effects** - trauma shake, freeze frame, flash, chromatic aberration
-- **Transitions** - fade to black, circle wipe scene transitions
-- **Audio** - channel-based SFX/Music/UI with volume control
-- **Save System** - persistent save via `bevy_pkv` + backup
+- **Game Feel** - recoil, knockback, slow-motion, rumble (gamepad)
+- **Screen Effects** - trauma shake, freeze frame, flash white, chromatic aberration pulse
+- **Transitions** - fade to black, circle wipe scene transitions with input blocking
+- **Audio** - channel-based SFX/Music/UI with volume control, pitch variation
+- **Save System** - persistent RON save + backup via `directories`
 - **Object Pooling** - generic entity pool with acquire/release
-- **Juice** - pop-in, squash & stretch, shake animations
-- **UI** - animated buttons, popup system, pause/settings/credits
-- **States** - Splash -> Loading -> Title -> InGame with pause state
-- **Theme** - centralized color/font constants
+- **Juice** - pop-in, squash & stretch, bounce scale, shake, particles
+- **VFX** - damage numbers, particle bursts, trail emitters
+- **UI Effects** - hover scale, typewriter text, number counter
+- **Math Utils** - smooth_damp, approach, wave (f32, Vec2, Vec3)
+- **Center Pivot** - sprite origin centering component
+- **UI** - animated buttons, popup system, pause/settings/credits (Repose)
+- **States** - Splash -> Loading -> Title -> InGame with pause overlay
+- **Theme** - centralized color constants
 - **Dev Tools** - FPS overlay, state logging (dev feature)
-- **Demo Scene** - player with shooting, enemies, trauma, recoil
+- **Demo Scene** - player with shooting, enemies, trauma, recoil, burst effects
 
 ## Quick Start
 

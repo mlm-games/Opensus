@@ -6,8 +6,9 @@ use repose_bevy::{ReposePlugin, ReposePluginSettings};
 use crate::demo::DemoPlugin;
 use crate::dev_tools::DevToolsPlugin;
 use crate::ecosystem::{
-    EcosystemPlugin, audio::AudioPlugin, game_feel::GameFeelPlugin, juice::JuicePlugin,
-    save::SavePlugin, screen_effects::ScreenEffectsPlugin, transitions::TransitionsPlugin,
+    EcosystemPlugin, audio::AudioPlugin, center_pivot::apply_center_pivot,
+    game_feel::GameFeelPlugin, juice::JuicePlugin, save::SavePlugin,
+    screen_effects::ScreenEffectsPlugin, transitions::TransitionsPlugin,
 };
 use crate::menus::{self, UiAction, UiBridge};
 use crate::screens::ScreensPlugin;
@@ -120,6 +121,7 @@ impl Plugin for AppPlugin {
                     handle_pause_input,
                     tick_pending_unpause,
                     sync_virtual_time_with_pause,
+                    apply_center_pivot,
                 )
                     .chain(),
             );

@@ -1,3 +1,4 @@
+use bevy::input::gamepad::{Gamepad, GamepadRumbleIntensity, GamepadRumbleRequest};
 use bevy::prelude::*;
 
 #[derive(Component)]
@@ -43,6 +44,28 @@ impl GameFeel {
         slow_mo.scale = scale.clamp(0.01, 1.0);
         slow_mo.timer = Timer::from_seconds(duration_real, TimerMode::Once);
         slow_mo.active = true;
+    }
+
+    pub fn rumble_controller(
+        rumble_writer: &mut MessageWriter<GamepadRumbleRequest>,
+        gamepads: &Query<(Entity, &Gamepad)>,
+        weak: f32,
+        strong: f32,
+        duration_secs: f32,
+    ) {
+        let intensity = GamepadRumbleIntensity {
+            strong_motor: strong.clamp(0.0, 1.0),
+            weak_motor: weak.clamp(0.0, 1.0),
+        };
+        let duration = std::time::Duration::from_secs_f32(duration_secs.max(0.0));
+        for (entity, _) in gamepads.iter() {
+            rumble_writer.write(GamepadRumbleRequest::Add {
+                gamepad: entity,
+                intensity,
+                duration,
+            });
+            break;
+        }
     }
 }
 

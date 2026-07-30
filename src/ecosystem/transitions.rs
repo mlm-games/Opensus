@@ -6,6 +6,7 @@ use crate::app::AppState;
 pub enum TransitionKind {
     #[default]
     Fade,
+    CircleWipe,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -30,6 +31,7 @@ pub struct Transition {
     pub speed: f32,
     pub pending_state: Option<AppState>,
     pub overlay_alpha: f32,
+    pub block_input: bool,
 }
 
 impl Default for Transition {
@@ -42,6 +44,7 @@ impl Default for Transition {
             speed: 2.5,
             pending_state: None,
             overlay_alpha: 0.0,
+            block_input: false,
         }
     }
 }
@@ -53,6 +56,28 @@ impl Transition {
         self.progress = 0.0;
         self.pending_state = Some(next);
         self.kind = TransitionKind::Fade;
+        self.block_input = true;
+    }
+
+    pub fn begin_to_state_with(&mut self, next: AppState, kind: TransitionKind) {
+        self.active = true;
+        self.phase = TransitionPhase::Covering;
+        self.progress = 0.0;
+        self.pending_state = Some(next);
+        self.kind = kind;
+        self.block_input = true;
+    }
+
+    pub fn circle_wipe_progress(&self) -> f32 {
+        if self.kind == TransitionKind::CircleWipe {
+            match self.phase {
+                TransitionPhase::Covering => self.progress,
+                TransitionPhase::Uncovering => 1.0 - self.progress,
+                TransitionPhase::Idle => 0.0,
+            }
+        } else {
+            0.0
+        }
     }
 }
 
@@ -79,13 +104,16 @@ fn tick_transition(
 ) {
     if !tr.active {
         tr.overlay_alpha = 0.0;
+        tr.block_input = false;
         return;
     }
     let dt = real.delta_secs() * tr.speed;
     match tr.phase {
         TransitionPhase::Covering => {
             tr.progress = (tr.progress + dt).min(1.0);
-            tr.overlay_alpha = tr.progress;
+            if tr.kind == TransitionKind::Fade {
+                tr.overlay_alpha = tr.progress;
+            }
             if tr.progress >= 1.0 {
                 if let Some(s) = tr.pending_state.take() {
                     next_state.set(s);
@@ -96,13 +124,23 @@ fn tick_transition(
         }
         TransitionPhase::Uncovering => {
             tr.progress = (tr.progress + dt).min(1.0);
-            tr.overlay_alpha = 1.0 - tr.progress;
+            if tr.kind == TransitionKind::Fade {
+                tr.overlay_alpha = 1.0 - tr.progress;
+            }
             if tr.progress >= 1.0 {
                 tr.active = false;
                 tr.phase = TransitionPhase::Idle;
                 tr.overlay_alpha = 0.0;
+                tr.block_input = false;
             }
         }
         TransitionPhase::Idle => {}
     }
 }
+
+pub fn block_input_during_transition(
+    _tr: Res<Transition>,
+    _next_state: ResMut<NextState<AppState>>,
+) {
+}
+

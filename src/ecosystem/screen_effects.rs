@@ -34,6 +34,9 @@ impl Default for FreezeFrame {
     }
 }
 
+#[derive(Resource, Default)]
+pub struct ChromaticAberration(pub f32);
+
 #[derive(Component, Clone, Copy)]
 pub struct CameraBase {
     pub translation: Vec3,
@@ -56,6 +59,10 @@ impl ScreenEffects {
         flash.amount = 1.0;
         flash.timer = Timer::from_seconds(duration, TimerMode::Once);
     }
+
+    pub fn chromatic_pulse(chrom: &mut ChromaticAberration, strength: f32) {
+        chrom.0 = chrom.0.max(strength);
+    }
 }
 
 pub struct ScreenEffectsPlugin;
@@ -64,11 +71,19 @@ impl Plugin for ScreenEffectsPlugin {
         app.init_resource::<Trauma>()
             .init_resource::<FlashWhite>()
             .init_resource::<FreezeFrame>()
+            .init_resource::<ChromaticAberration>()
             .add_systems(
                 Update,
-                (apply_trauma_shake, tick_flash, tick_freeze).chain(),
+                (apply_trauma_shake, tick_flash, tick_freeze, tick_chromatic).chain(),
             );
     }
+}
+
+fn tick_chromatic(
+    time: Res<Time>,
+    mut chrom: ResMut<ChromaticAberration>,
+) {
+    chrom.0 = (chrom.0 - 2.0 * time.delta_secs()).max(0.0);
 }
 
 fn apply_trauma_shake(

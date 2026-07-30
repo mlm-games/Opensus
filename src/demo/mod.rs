@@ -1,3 +1,4 @@
+use bevy::input::gamepad::{Gamepad, GamepadRumbleRequest};
 use bevy::prelude::*;
 use rand::RngExt;
 
@@ -6,6 +7,7 @@ use crate::ecosystem::game_feel::GameFeel;
 use crate::ecosystem::juice::Juice;
 use crate::ecosystem::save::{SaveData, SaveManager};
 use crate::ecosystem::screen_effects::{ScreenEffects, Trauma};
+use crate::ecosystem::vfx::VfxSpawner;
 
 #[derive(Resource, Default)]
 pub struct Score(pub u32);
@@ -188,6 +190,8 @@ fn bullet_enemy_collision(
     mut save: ResMut<SaveData>,
     bullets: Query<(Entity, &Transform), With<Bullet>>,
     enemies: Query<(Entity, &Transform), With<Enemy>>,
+    gamepads: Query<(Entity, &Gamepad)>,
+    mut rumble: MessageWriter<GamepadRumbleRequest>,
 ) {
     for (be, bt) in &bullets {
         for (ee, et) in &enemies {
@@ -197,10 +201,20 @@ fn bullet_enemy_collision(
                 .distance(et.translation.truncate())
                 < 18.0
             {
+                let pos = et.translation.truncate();
                 commands.entity(be).despawn();
                 commands.entity(ee).despawn();
                 score.0 += 10;
                 ScreenEffects::add_trauma(&mut trauma, 0.35);
+                GameFeel::rumble_controller(&mut rumble, &gamepads, 0.3, 0.7, 0.15);
+                VfxSpawner::spawn_damage_number(&mut commands, 10, pos, Color::srgb(1.0, 0.9, 0.2));
+                VfxSpawner::spawn_burst(
+                    &mut commands,
+                    pos,
+                    8,
+                    Color::srgb(1.0, 0.4, 0.3),
+                    (40.0, 100.0),
+                );
                 if score.0 > save.high_score {
                     save.high_score = score.0;
                     let _ = SaveManager::save(&save);
