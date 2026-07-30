@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
@@ -6,8 +7,8 @@ use repose_bevy::{ReposePlugin, ReposePluginSettings};
 use crate::demo::DemoPlugin;
 use crate::dev_tools::DevToolsPlugin;
 use crate::ecosystem::{
-    EcosystemPlugin, audio::AudioPlugin, center_pivot::apply_center_pivot,
-    game_feel::GameFeelPlugin, juice::JuicePlugin, save::SavePlugin,
+    EcosystemPlugin, audio::{AudioChannels, AudioPlugin}, center_pivot::apply_center_pivot,
+    game_feel::GameFeelPlugin, i18n::{self, LocaleResources}, juice::JuicePlugin, save::SavePlugin,
     screen_effects::ScreenEffectsPlugin, transitions::TransitionsPlugin,
 };
 use crate::menus::{self, UiAction, UiBridge};
@@ -50,6 +51,9 @@ pub struct SharedUi {
     pub score: u32,
     pub transition_alpha: f32,
     pub flash_alpha: f32,
+    pub language: String,
+    pub available_languages: Vec<String>,
+    pub translations: HashMap<String, String>,
 }
 
 impl Default for SharedUi {
@@ -65,6 +69,9 @@ impl Default for SharedUi {
             score: 0,
             transition_alpha: 0.0,
             flash_alpha: 0.0,
+            language: "en".to_string(),
+            available_languages: vec!["en".to_string()],
+            translations: HashMap::new(),
         }
     }
 }
@@ -148,6 +155,8 @@ fn sync_shared_ui(
     score: Option<Res<crate::demo::Score>>,
     transition: Res<crate::ecosystem::transitions::Transition>,
     flash: Res<crate::ecosystem::screen_effects::FlashWhite>,
+    locale: Res<LocaleResources>,
+    mut channels: ResMut<AudioChannels>,
 ) {
     let Ok(mut ui) = bridge.shared.lock() else {
         return;
@@ -164,6 +173,12 @@ fn sync_shared_ui(
     }
     ui.transition_alpha = transition.overlay_alpha;
     ui.flash_alpha = flash.amount;
+    ui.language = locale.current.clone();
+    ui.available_languages = locale.available.clone();
+    ui.translations = i18n::get_current_translations(&locale);
+    channels.master = save.settings.master_volume;
+    channels.sfx = save.settings.sfx_volume;
+    channels.music = save.settings.music_volume;
 }
 
 fn tick_pending_unpause(
@@ -197,6 +212,7 @@ fn process_ui_actions(
     mut transition: ResMut<crate::ecosystem::transitions::Transition>,
     mut virtual_time: ResMut<Time<Virtual>>,
     mut pending_unpause: ResMut<PendingUnpause>,
+    mut locale: ResMut<LocaleResources>,
 ) {
     let Ok(mut q) = bridge.actions.lock() else {
         return;
@@ -248,6 +264,15 @@ fn process_ui_actions(
                     *overlay = OverlayMenu::Pause;
                 } else {
                     *overlay = OverlayMenu::None;
+                }
+            }
+            UiAction::NextLanguage => {
+                let available = locale.available.clone();
+                let current = locale.current.clone();
+                let idx = available.iter().position(|l| *l == current).unwrap_or(0);
+                let next = (idx + 1) % available.len();
+                if let Some(next_locale) = available.get(next) {
+                    locale.set_locale(next_locale);
                 }
             }
         }

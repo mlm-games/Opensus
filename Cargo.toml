@@ -70,6 +70,8 @@ rand = "0.10"
 serde = { version = "1", features = ["derive"] }
 ron = "0.12"
 directories = "6"
+unic-langid = "0.9"
+fluent-bundle = "0.16"
 avian2d = { git = "https://github.com/avianphysics/avian", optional = true, default-features = false, features = [
     "2d",
     "parry-f32",

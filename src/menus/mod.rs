@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -12,6 +13,10 @@ use repose_ui::{Column, Row, Text as RText, TextStyle, ViewExt, ZStack};
 
 use crate::app::{AppState, OverlayMenu, SharedUi};
 
+fn t(translations: &HashMap<String, String>, key: &str, fallback: &str) -> String {
+    translations.get(key).cloned().unwrap_or_else(|| fallback.to_string())
+}
+
 #[derive(Clone, Debug)]
 pub enum UiAction {
     StartGame,
@@ -25,6 +30,7 @@ pub enum UiAction {
     SetSfxVol(f32),
     SetMusicVol(f32),
     SaveSettings,
+    NextLanguage,
 }
 
 #[derive(bevy::prelude::Resource, Clone)]
@@ -53,7 +59,7 @@ pub fn compose_root(st: SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         AppState::Splash => splash_ui(),
         AppState::Loading => loading_ui(),
         AppState::Title => ZStack(Modifier::new().fill_max_size()).child((
-            title_ui(actions.clone()),
+            title_ui(&st, actions.clone()),
             AnimatedVisibility(
                 st.overlay == OverlayMenu::Settings,
                 settings_ui(&st, actions.clone()),
@@ -61,7 +67,7 @@ pub fn compose_root(st: SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             ),
             AnimatedVisibility(
                 st.overlay == OverlayMenu::Credits,
-                credits_ui(actions.clone()),
+                credits_ui(&st, actions.clone()),
                 popup_anim_config("title_credits"),
             ),
         )),
@@ -71,7 +77,7 @@ pub fn compose_root(st: SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 hud,
                 AnimatedVisibility(
                     st.overlay == OverlayMenu::Pause,
-                    pause_overlay(actions.clone()),
+                    pause_overlay(&st, actions.clone()),
                     popup_anim_config("pause"),
                 ),
                 AnimatedVisibility(
@@ -81,7 +87,7 @@ pub fn compose_root(st: SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 ),
                 AnimatedVisibility(
                     st.overlay == OverlayMenu::Credits,
-                    credits_ui(actions.clone()),
+                    credits_ui(&st, actions.clone()),
                     popup_anim_config("ingame_credits"),
                 ),
             ))
@@ -131,11 +137,12 @@ fn loading_ui() -> View {
     .child(RText("Loading...").size(32.0).color(RColor::WHITE))
 }
 
-fn title_ui(actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let a1 = actions.clone();
     let a2 = actions.clone();
     let a3 = actions.clone();
     let a4 = actions.clone();
+    let tr = &st.translations;
 
     Column(
         Modifier::new()
@@ -145,27 +152,28 @@ fn title_ui(actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .background(col(8, 8, 12)),
     )
     .child((
-        RText("My Ecosystem Bevy").size(56.0).color(RColor::WHITE),
+        RText(t(tr, "app-title", "My Ecosystem Bevy")).size(56.0).color(RColor::WHITE),
         spacer(24.0),
-        mk_button("Start Game", col(60, 120, 200), move || {
+        mk_button(&t(tr, "start-game", "Start Game"), col(60, 120, 200), move || {
             push(&a1, UiAction::StartGame)
         }),
-        mk_button("Settings", col(70, 70, 90), move || {
+        mk_button(&t(tr, "settings", "Settings"), col(70, 70, 90), move || {
             push(&a2, UiAction::OpenSettings)
         }),
-        mk_button("Credits", col(70, 70, 90), move || {
+        mk_button(&t(tr, "credits", "Credits"), col(70, 70, 90), move || {
             push(&a3, UiAction::OpenCredits)
         }),
-        mk_button("Quit", col(180, 60, 60), move || {
+        mk_button(&t(tr, "quit", "Quit"), col(180, 60, 60), move || {
             push(&a4, UiAction::QuitApp)
         }),
     ))
 }
 
-fn pause_overlay(actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let a1 = actions.clone();
     let a2 = actions.clone();
     let a3 = actions.clone();
+    let tr = &st.translations;
 
     Column(
         Modifier::new()
@@ -174,10 +182,11 @@ fn pause_overlay(actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .align_items(AlignItems::CENTER)
             .background(RColor::from_rgba(0, 0, 0, 180)),
     )
-    .child(pause_panel(a1, a2, a3))
+    .child(pause_panel(tr, a1, a2, a3))
 }
 
 fn pause_panel(
+    tr: &HashMap<String, String>,
     a1: Arc<Mutex<Vec<UiAction>>>,
     a2: Arc<Mutex<Vec<UiAction>>>,
     a3: Arc<Mutex<Vec<UiAction>>>,
@@ -191,15 +200,15 @@ fn pause_panel(
             .align_items(AlignItems::CENTER),
     )
     .child((
-        RText("Paused").size(36.0).color(RColor::WHITE),
+        RText(t(tr, "paused", "Paused")).size(36.0).color(RColor::WHITE),
         spacer(16.0),
-        mk_button("Resume", col(60, 140, 90), move || {
+        mk_button(&t(tr, "resume", "Resume"), col(60, 140, 90), move || {
             push(&a1, UiAction::Resume)
         }),
-        mk_button("Settings", col(70, 70, 90), move || {
+        mk_button(&t(tr, "settings", "Settings"), col(70, 70, 90), move || {
             push(&a2, UiAction::OpenSettings)
         }),
-        mk_button("Quit to Title", col(180, 60, 60), move || {
+        mk_button(&t(tr, "quit-to-title", "Quit to Title"), col(180, 60, 60), move || {
             push(&a3, UiAction::QuitToTitle)
         }),
     ))
@@ -210,10 +219,14 @@ fn settings_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let a_m_up = actions.clone();
     let a_s_down = actions.clone();
     let a_s_up = actions.clone();
+    let a_lang = actions.clone();
     let a_save = actions.clone();
     let a_back = actions.clone();
     let master = st.master_vol;
     let sfx = st.sfx_vol;
+    let tr = &st.translations;
+    let lang = &st.language;
+    let langs = &st.available_languages;
 
     let inner = Column(
         Modifier::new()
@@ -223,10 +236,10 @@ fn settings_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .clip_rounded(12.0)
             .align_items(AlignItems::CENTER),
     )
-    .child(RText("Settings").size(36.0).color(RColor::WHITE))
+    .child(RText(t(tr, "settings", "Settings")).size(36.0).color(RColor::WHITE))
     .child(spacer(12.0))
     .child(
-        RText(format!("Master: {:.0}%", master * 100.0))
+        RText(format!("{}: {:.0}%", t(tr, "master-volume", "Master"), master * 100.0))
             .size(18.0)
             .color(RColor::WHITE),
     )
@@ -240,7 +253,7 @@ fn settings_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     )))
     .child(spacer(8.0))
     .child(
-        RText(format!("SFX: {:.0}%", sfx * 100.0))
+        RText(format!("{}: {:.0}%", t(tr, "sfx-volume", "SFX"), sfx * 100.0))
             .size(18.0)
             .color(RColor::WHITE),
     )
@@ -248,11 +261,20 @@ fn settings_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         mk_button_sm("-", move || push(&a_s_down, UiAction::SetSfxVol(sfx - 0.1))),
         mk_button_sm("+", move || push(&a_s_up, UiAction::SetSfxVol(sfx + 0.1))),
     )))
+    .child(spacer(8.0))
+    .child(
+        RText(format!("{}: {}", t(tr, "language", "Language"), lang))
+            .size(18.0)
+            .color(RColor::WHITE),
+    )
+    .child(mk_button(&langs.join(" / "), col(50, 50, 70), move || {
+        push(&a_lang, UiAction::NextLanguage)
+    }))
     .child(spacer(16.0))
-    .child(mk_button("Save", col(60, 120, 200), move || {
+    .child(mk_button(&t(tr, "save", "Save"), col(60, 120, 200), move || {
         push(&a_save, UiAction::SaveSettings)
     }))
-    .child(mk_button("Back", col(70, 70, 90), move || {
+    .child(mk_button(&t(tr, "back", "Back"), col(70, 70, 90), move || {
         push(&a_back, UiAction::CloseOverlay)
     }));
 
@@ -266,8 +288,9 @@ fn settings_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     .child(inner)
 }
 
-fn credits_ui(actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let a = actions.clone();
+    let tr = &st.translations;
     let inner = Column(
         Modifier::new()
             .width(400.0)
@@ -277,7 +300,7 @@ fn credits_ui(actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .align_items(AlignItems::CENTER),
     )
     .child((
-        RText("Credits").size(36.0).color(RColor::WHITE),
+        RText(t(tr, "credits", "Credits")).size(36.0).color(RColor::WHITE),
         spacer(12.0),
         RText("Original Godot template: mlm-games")
             .size(16.0)
@@ -289,7 +312,7 @@ fn credits_ui(actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .size(16.0)
             .color(RColor::WHITE),
         spacer(16.0),
-        mk_button("Back", col(70, 70, 90), move || {
+        mk_button(&t(tr, "back", "Back"), col(70, 70, 90), move || {
             push(&a, UiAction::CloseOverlay)
         }),
     ));
@@ -305,6 +328,7 @@ fn credits_ui(actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 }
 
 fn ingame_hud(st: &SharedUi) -> View {
+    let tr = &st.translations;
     Column(
         Modifier::new()
             .fill_max_size()
@@ -313,13 +337,13 @@ fn ingame_hud(st: &SharedUi) -> View {
             .justify_content(JustifyContent::FLEX_START),
     )
     .child((
-        RText(format!("Score: {}", st.score))
+        RText(format!("{}: {}", t(tr, "score", "Score"), st.score))
             .size(22.0)
             .color(RColor::WHITE),
-        RText(format!("Best: {}", st.high_score))
+        RText(format!("{}: {}", t(tr, "best", "Best"), st.high_score))
             .size(16.0)
             .color(col(200, 200, 200)),
-        RText("WASD move  Click/Space shoot  Esc pause")
+        RText(t(tr, "controls-hint", "WASD move  Click/Space shoot  Esc pause"))
             .size(14.0)
             .color(col(180, 180, 180)),
     ))
