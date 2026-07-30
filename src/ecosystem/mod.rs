@@ -5,6 +5,7 @@ pub mod i18n;
 pub mod juice;
 pub mod math_utils;
 pub mod pooling;
+pub mod post_process;
 pub mod save;
 pub mod screen_effects;
 pub mod transitions;
@@ -18,6 +19,7 @@ use center_pivot::CenterPivotPlugin;
 use game_feel::GameFeelPlugin;
 use i18n::I18nPlugin;
 use juice::JuicePlugin;
+use post_process::ScreenEffectsPostProcessPlugin;
 use save::SavePlugin;
 use screen_effects::ScreenEffectsPlugin;
 use transitions::TransitionsPlugin;
@@ -35,6 +37,7 @@ impl Plugin for EcosystemPlugin {
             JuicePlugin,
             SavePlugin,
             ScreenEffectsPlugin,
+            ScreenEffectsPostProcessPlugin,
             TransitionsPlugin,
             UiEffectsPlugin,
             VfxPlugin,

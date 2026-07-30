@@ -106,7 +106,7 @@ fn tick_transition(
 ) {
     if !tr.active {
         tr.overlay_alpha = 0.0;
-        tr.circle_progress = 0.0;
+        tr.circle_progress = (tr.circle_progress - 2.0 * real.delta_secs()).max(0.0);
         tr.block_input = false;
         return;
     }

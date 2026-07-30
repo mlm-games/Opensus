@@ -12,6 +12,7 @@ use crate::ecosystem::{
     EcosystemPlugin,
     audio::AudioChannels,
     i18n::{self, LocaleResources},
+    post_process::{sync_post_process_settings, ScreenEffectSettings},
     transitions::Transition,
 };
 use crate::menus::{self, UiAction, UiBridge};
@@ -126,6 +127,7 @@ impl Plugin for AppPlugin {
                 Update,
                 (
                     sync_shared_ui,
+                    sync_post_process_settings,
                     process_ui_actions,
                     handle_pause_input,
                     tick_pending_unpause,
@@ -144,6 +146,7 @@ fn setup_camera(mut commands: Commands) {
             translation: Vec3::new(0.0, 0.0, 1000.0),
             rotation: 0.0,
         },
+        ScreenEffectSettings::default(),
     ));
 }
 
