@@ -234,10 +234,10 @@ fn process_ui_actions(
             }
             UiAction::OpenCredits => *overlay = OverlayMenu::Credits,
             UiAction::CloseOverlay => {
-                if *overlay == OverlayMenu::Settings {
-                    if let Ok(ui) = bridge.shared.lock() {
-                        locale.set_locale(&ui.saved_language);
-                    }
+                if *overlay == OverlayMenu::Settings
+                    && let Ok(ui) = bridge.shared.lock()
+                {
+                    locale.set_locale(&ui.saved_language);
                 }
                 match *overlay {
                     OverlayMenu::Settings | OverlayMenu::Credits if paused.0 => {

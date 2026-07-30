@@ -9,17 +9,12 @@ pub enum TransitionKind {
     CircleWipe,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum TransitionPhase {
+    #[default]
     Idle,
     Covering,
     Uncovering,
-}
-
-impl Default for TransitionPhase {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
 
 #[derive(Resource)]
