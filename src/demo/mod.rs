@@ -6,9 +6,27 @@ use crate::app::{AppState, Paused};
 use crate::ecosystem::game_feel::GameFeel;
 use crate::ecosystem::juice::Juice;
 use crate::ecosystem::save::{SaveData, SaveManager};
-use crate::ecosystem::screen_effects::{ScreenEffects, Trauma};
+use crate::ecosystem::screen_effects::{
+    ChromaticAberration, FlashWhite, FreezeFrame, ScreenEffects, Trauma,
+};
 use crate::ecosystem::transitions::Transition;
 use crate::ecosystem::vfx::VfxSpawner;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PowerupKind {
+    Chromatic,
+    Flash,
+    Freeze,
+    Trauma,
+    DamageAll,
+    CircleWipe,
+}
+
+#[derive(Component)]
+struct PowerupDrop {
+    kind: PowerupKind,
+    speed: f32,
+}
 
 #[derive(Resource, Default)]
 pub struct Score(pub u32);
@@ -48,6 +66,8 @@ impl Plugin for DemoPlugin {
                     spawn_enemies,
                     move_enemies,
                     bullet_enemy_collision,
+                    move_powerups,
+                    collect_powerups,
                 )
                     .run_if(in_state(AppState::InGame))
                     .run_if(|p: Res<Paused>| !p.0)
@@ -185,6 +205,42 @@ fn move_enemies(time: Res<Time>, mut q: Query<(&Enemy, &mut Transform)>) {
     }
 }
 
+fn spawn_powerup(commands: &mut Commands, pos: Vec2) {
+    const KINDS: [PowerupKind; 6] = [
+        PowerupKind::Chromatic,
+        PowerupKind::Flash,
+        PowerupKind::Freeze,
+        PowerupKind::Trauma,
+        PowerupKind::DamageAll,
+        PowerupKind::CircleWipe,
+    ];
+    let kind = KINDS[rand::rng().random_range(0..KINDS.len())];
+    let color = match kind {
+        PowerupKind::Chromatic => Color::srgb(0.2, 0.6, 1.0),
+        PowerupKind::Flash => Color::srgb(1.0, 1.0, 0.8),
+        PowerupKind::Freeze => Color::srgb(0.5, 0.9, 1.0),
+        PowerupKind::Trauma => Color::srgb(1.0, 0.5, 0.0),
+        PowerupKind::DamageAll => Color::srgb(1.0, 0.1, 0.1),
+        PowerupKind::CircleWipe => Color::srgb(0.8, 0.3, 1.0),
+    };
+    let e = commands
+        .spawn((
+            DemoCleanup,
+            PowerupDrop {
+                kind,
+                speed: rand::rng().random_range(30.0..60.0),
+            },
+            Sprite {
+                color,
+                custom_size: Some(Vec2::splat(18.0)),
+                ..default()
+            },
+            Transform::from_xyz(pos.x, pos.y, 3.0),
+        ))
+        .id();
+    Juice::pop_in(commands, e, 0.2);
+}
+
 fn bullet_enemy_collision(
     mut commands: Commands,
     mut score: ResMut<Score>,
@@ -217,10 +273,66 @@ fn bullet_enemy_collision(
                     Color::srgb(1.0, 0.4, 0.3),
                     (40.0, 100.0),
                 );
+                if rand::rng().random_range(0.0..1.0) < 0.35 {
+                    spawn_powerup(&mut commands, pos);
+                }
                 if score.0 > save.high_score {
                     save.high_score = score.0;
                     let _ = SaveManager::save(&save);
                 }
+            }
+        }
+    }
+}
+
+fn move_powerups(time: Res<Time>, mut q: Query<(&PowerupDrop, &mut Transform)>) {
+    for (p, mut tf) in &mut q {
+        tf.translation.y -= p.speed * time.delta_secs();
+        if tf.translation.y < -380.0 {
+            tf.translation.y = 380.0;
+            tf.translation.x = rand::rng().random_range(-550.0..550.0);
+        }
+    }
+}
+
+fn collect_powerups(
+    mut commands: Commands,
+    player: Query<&Transform, With<Player>>,
+    powerups: Query<(Entity, &Transform, &PowerupDrop)>,
+    mut trauma: ResMut<Trauma>,
+    mut flash: ResMut<FlashWhite>,
+    mut freeze: ResMut<FreezeFrame>,
+    mut chroma: ResMut<ChromaticAberration>,
+    mut transition: ResMut<Transition>,
+) {
+    let Ok(pt) = player.single() else {
+        return;
+    };
+    let ppos = pt.translation.truncate();
+    for (e, t, drop) in &powerups {
+        if ppos.distance(t.translation.truncate()) > 28.0 {
+            continue;
+        }
+        commands.entity(e).despawn();
+        match drop.kind {
+            PowerupKind::Chromatic => {
+                ScreenEffects::chromatic_pulse(&mut chroma, 0.8);
+            }
+            PowerupKind::Flash => {
+                ScreenEffects::flash_white(&mut flash, 0.4);
+            }
+            PowerupKind::Freeze => {
+                ScreenEffects::freeze_frame(&mut freeze, 0.15);
+            }
+            PowerupKind::Trauma => {
+                ScreenEffects::add_trauma(&mut trauma, 0.6);
+            }
+            PowerupKind::DamageAll => {
+                ScreenEffects::add_trauma(&mut trauma, 0.8);
+                ScreenEffects::flash_white(&mut flash, 0.3);
+            }
+            PowerupKind::CircleWipe => {
+                transition.circle_progress = 1.0;
             }
         }
     }
