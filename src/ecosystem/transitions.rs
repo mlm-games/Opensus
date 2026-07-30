@@ -148,7 +148,11 @@ fn update_visuals(tr: &mut Transition, t: f32, covering: bool) {
         }
         TransitionKind::CircleWipe => {
             tr.circle_progress = if covering { t } else { 1.0 - t };
-            tr.overlay_alpha = if covering { (t * 1.2).min(1.0) } else { ((1.0 - t) * 1.2).min(1.0) };
+            tr.overlay_alpha = if covering {
+                (t * 1.2).min(1.0)
+            } else {
+                ((1.0 - t) * 1.2).min(1.0)
+            };
         }
     }
 }

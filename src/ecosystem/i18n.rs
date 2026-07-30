@@ -4,15 +4,30 @@ use bevy::prelude::*;
 use fluent_bundle::{FluentBundle, FluentResource};
 
 const TRANSLATION_KEYS: &[&str] = &[
-    "app-title", "start-game", "settings", "credits", "quit",
-    "paused", "resume", "quit-to-title", "save", "back",
-    "master-volume", "sfx-volume", "music-volume", "language",
-    "score", "best", "controls-hint", "loading",
+    "app-title",
+    "start-game",
+    "settings",
+    "credits",
+    "quit",
+    "paused",
+    "resume",
+    "quit-to-title",
+    "save",
+    "back",
+    "master-volume",
+    "sfx-volume",
+    "music-volume",
+    "language",
+    "score",
+    "best",
+    "controls-hint",
+    "loading",
 ];
 
 fn load_ftl(locale: &str, ftl: &str) -> (String, HashMap<String, String>) {
     if let Ok(res) = FluentResource::try_new(ftl.to_string()) {
-        let langid: unic_langid::LanguageIdentifier = locale.parse().unwrap_or_else(|_| "en".parse().unwrap());
+        let langid: unic_langid::LanguageIdentifier =
+            locale.parse().unwrap_or_else(|_| "en".parse().unwrap());
         let mut bundle = FluentBundle::new(vec![langid]);
         bundle.set_use_isolating(false);
         if bundle.add_resource(res).is_ok() {
@@ -21,7 +36,11 @@ fn load_ftl(locale: &str, ftl: &str) -> (String, HashMap<String, String>) {
                 let value = bundle
                     .get_message(key)
                     .and_then(|msg| msg.value())
-                    .map(|pattern| bundle.format_pattern(pattern, None, &mut Vec::new()).into_owned())
+                    .map(|pattern| {
+                        bundle
+                            .format_pattern(pattern, None, &mut Vec::new())
+                            .into_owned()
+                    })
                     .unwrap_or_else(|| key.to_string());
                 map.insert(key.to_string(), value);
             }
@@ -107,4 +126,3 @@ impl Plugin for I18nPlugin {
         app.init_resource::<LocaleResources>();
     }
 }
-

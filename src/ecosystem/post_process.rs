@@ -1,7 +1,8 @@
 use bevy::{
-    core_pipeline::{schedule::Core2d, Core2dSystems, FullscreenShader},
+    core_pipeline::{Core2dSystems, FullscreenShader, schedule::Core2d},
     prelude::*,
     render::{
+        RenderApp, RenderStartup,
         extract_component::{
             ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
             UniformComponentPlugin,
@@ -12,7 +13,6 @@ use bevy::{
         },
         renderer::{RenderContext, RenderDevice, ViewQuery},
         view::ViewTarget,
-        RenderApp, RenderStartup,
     },
 };
 

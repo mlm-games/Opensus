@@ -44,10 +44,7 @@ impl Plugin for UiEffectsPlugin {
     }
 }
 
-fn hover_scale_system(
-    time: Res<Time>,
-    mut q: Query<(&Interaction, &HoverScale, &mut Transform)>,
-) {
+fn hover_scale_system(time: Res<Time>, mut q: Query<(&Interaction, &HoverScale, &mut Transform)>) {
     for (interaction, hs, mut tf) in &mut q {
         let target = match *interaction {
             Interaction::Hovered | Interaction::Pressed => hs.hovered,

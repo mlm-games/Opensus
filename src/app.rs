@@ -12,7 +12,7 @@ use crate::ecosystem::{
     EcosystemPlugin,
     audio::AudioChannels,
     i18n::{self, LocaleResources},
-    post_process::{sync_post_process_settings, ScreenEffectSettings},
+    post_process::{ScreenEffectSettings, sync_post_process_settings},
     transitions::Transition,
 };
 use crate::menus::{self, UiAction, UiBridge};

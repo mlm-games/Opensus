@@ -41,7 +41,9 @@ impl ObjectPool {
         count: usize,
         spawn: impl FnMut(&mut EntityCommands),
     ) {
-        let room = pool.max_size.saturating_sub(pool.active.len() + pool.available.len());
+        let room = pool
+            .max_size
+            .saturating_sub(pool.active.len() + pool.available.len());
         let actual = count.min(room);
         let mut spawn = spawn;
         for _ in 0..actual {
