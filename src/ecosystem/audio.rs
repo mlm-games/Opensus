@@ -90,7 +90,12 @@ impl AudioM {
 
 fn sync_channel_volumes(
     channels: Res<AudioChannels>,
-    mut q: Query<(&mut AudioSink, Option<&SfxChannel>, Option<&MusicChannel>, Option<&UiChannel>)>,
+    mut q: Query<(
+        &mut AudioSink,
+        Option<&SfxChannel>,
+        Option<&MusicChannel>,
+        Option<&UiChannel>,
+    )>,
 ) {
     for (mut sink, sfx, music, ui) in &mut q {
         let vol = if sfx.is_some() {

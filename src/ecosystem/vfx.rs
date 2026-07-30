@@ -24,12 +24,7 @@ pub struct TrailGhost {
 pub struct VfxSpawner;
 
 impl VfxSpawner {
-    pub fn spawn_damage_number(
-        commands: &mut Commands,
-        amount: i32,
-        pos: Vec2,
-        color: Color,
-    ) {
+    pub fn spawn_damage_number(commands: &mut Commands, amount: i32, pos: Vec2, color: Color) {
         commands.spawn((
             Text2d::new(amount.to_string()),
             TextFont {
@@ -74,11 +69,7 @@ impl VfxSpawner {
         }
     }
 
-    pub fn create_trail(
-        commands: &mut Commands,
-        entity: Entity,
-        interval: f32,
-    ) {
+    pub fn create_trail(commands: &mut Commands, entity: Entity, interval: f32) {
         commands.entity(entity).insert(TrailEmitter {
             timer: Timer::from_seconds(interval, TimerMode::Repeating),
             interval,
@@ -90,7 +81,10 @@ impl VfxSpawner {
 pub struct VfxPlugin;
 impl Plugin for VfxPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (animate_damage_numbers, emit_trails, animate_trail_ghosts));
+        app.add_systems(
+            Update,
+            (animate_damage_numbers, emit_trails, animate_trail_ghosts),
+        );
     }
 }
 

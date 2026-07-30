@@ -79,10 +79,7 @@ impl Plugin for ScreenEffectsPlugin {
     }
 }
 
-fn tick_chromatic(
-    time: Res<Time>,
-    mut chrom: ResMut<ChromaticAberration>,
-) {
+fn tick_chromatic(time: Res<Time>, mut chrom: ResMut<ChromaticAberration>) {
     chrom.0 = (chrom.0 - 2.0 * time.delta_secs()).max(0.0);
 }
 

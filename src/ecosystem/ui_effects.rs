@@ -53,14 +53,13 @@ fn hover_scale_system(
             Interaction::Hovered | Interaction::Pressed => hs.hovered,
             _ => hs.normal,
         };
-        tf.scale = tf.scale.lerp(target, (hs.speed * time.delta_secs()).min(1.0));
+        tf.scale = tf
+            .scale
+            .lerp(target, (hs.speed * time.delta_secs()).min(1.0));
     }
 }
 
-fn typewriter_system(
-    time: Res<Time>,
-    mut q: Query<(&mut Text, &mut Typewriter)>,
-) {
+fn typewriter_system(time: Res<Time>, mut q: Query<(&mut Text, &mut Typewriter)>) {
     for (mut text, mut tw) in &mut q {
         if tw.finished {
             continue;
@@ -79,10 +78,7 @@ fn typewriter_system(
     }
 }
 
-fn number_counter_system(
-    time: Res<Time>,
-    mut q: Query<(&mut Text, &mut NumberCounter)>,
-) {
+fn number_counter_system(time: Res<Time>, mut q: Query<(&mut Text, &mut NumberCounter)>) {
     for (mut text, mut nc) in &mut q {
         if nc.finished {
             continue;

@@ -9,9 +9,15 @@ use repose_ui::overlay::OverlayHandle;
 use crate::demo::DemoPlugin;
 use crate::dev_tools::DevToolsPlugin;
 use crate::ecosystem::{
-    EcosystemPlugin, audio::{AudioChannels, AudioPlugin}, center_pivot::apply_center_pivot,
-    game_feel::GameFeelPlugin, i18n::{self, LocaleResources}, juice::JuicePlugin, save::SavePlugin,
-    screen_effects::ScreenEffectsPlugin, transitions::TransitionsPlugin,
+    EcosystemPlugin,
+    audio::{AudioChannels, AudioPlugin},
+    center_pivot::apply_center_pivot,
+    game_feel::GameFeelPlugin,
+    i18n::{self, LocaleResources},
+    juice::JuicePlugin,
+    save::SavePlugin,
+    screen_effects::ScreenEffectsPlugin,
+    transitions::TransitionsPlugin,
 };
 use crate::menus::{self, UiAction, UiBridge};
 use crate::screens::ScreensPlugin;
@@ -254,7 +260,7 @@ fn process_ui_actions(
                         *overlay = OverlayMenu::None;
                     }
                 }
-            },
+            }
             UiAction::Resume => {
                 *overlay = OverlayMenu::None;
                 pending_unpause.0 = Some(Timer::from_seconds(0.2, TimerMode::Once));

@@ -143,4 +143,3 @@ pub fn block_input_during_transition(
     _next_state: ResMut<NextState<AppState>>,
 ) {
 }
-

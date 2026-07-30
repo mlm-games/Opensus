@@ -22,9 +22,8 @@ fn load_all_translations() -> HashMap<String, HashMap<String, String>> {
                     let ftl_path = entry.path().join("main.ftl");
                     if let Ok(ftl_content) = fs::read_to_string(&ftl_path) {
                         if let Ok(res) = FluentResource::try_new(ftl_content) {
-                            let langid: unic_langid::LanguageIdentifier = name
-                                .parse()
-                                .unwrap_or_else(|_| "en".parse().unwrap());
+                            let langid: unic_langid::LanguageIdentifier =
+                                name.parse().unwrap_or_else(|_| "en".parse().unwrap());
                             let mut bundle = FluentBundle::new(vec![langid]);
                             bundle.set_use_isolating(false);
                             if bundle.add_resource(res).is_ok() {
@@ -47,10 +46,24 @@ fn load_all_translations() -> HashMap<String, HashMap<String, String>> {
 }
 
 const TRANSLATION_KEYS: &[&str] = &[
-    "app-title", "start-game", "settings", "credits", "quit",
-    "paused", "resume", "quit-to-title", "save", "back",
-    "master-volume", "sfx-volume", "music-volume", "language",
-    "score", "best", "controls-hint", "loading",
+    "app-title",
+    "start-game",
+    "settings",
+    "credits",
+    "quit",
+    "paused",
+    "resume",
+    "quit-to-title",
+    "save",
+    "back",
+    "master-volume",
+    "sfx-volume",
+    "music-volume",
+    "language",
+    "score",
+    "best",
+    "controls-hint",
+    "loading",
 ];
 
 fn resolve_translations(bundle: &FluentBundle<FluentResource>) -> HashMap<String, String> {
@@ -91,7 +104,10 @@ impl Default for LocaleResources {
         let current = if available.contains(&"en".to_string()) {
             "en".to_string()
         } else {
-            available.first().cloned().unwrap_or_else(|| "en".to_string())
+            available
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "en".to_string())
         };
         let translations = all.get(&current).cloned().unwrap_or_default();
         Self {

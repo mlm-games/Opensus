@@ -21,7 +21,10 @@ use repose_ui::{Column, Row, Text as RText, TextStyle, ViewExt, ZStack};
 use crate::app::{AppState, OverlayMenu, SharedUi};
 
 fn t(translations: &HashMap<String, String>, key: &str, fallback: &str) -> String {
-    translations.get(key).cloned().unwrap_or_else(|| fallback.to_string())
+    translations
+        .get(key)
+        .cloned()
+        .unwrap_or_else(|| fallback.to_string())
 }
 
 #[derive(Clone, Debug)]
@@ -165,11 +168,15 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .background(col(8, 8, 12)),
     )
     .child((
-        RText(t(tr, "app-title", "My Ecosystem Bevy")).size(56.0).color(RColor::WHITE),
+        RText(t(tr, "app-title", "My Ecosystem Bevy"))
+            .size(56.0)
+            .color(RColor::WHITE),
         spacer(24.0),
-        mk_button(&t(tr, "start-game", "Start Game"), col(60, 120, 200), move || {
-            push(&a1, UiAction::StartGame)
-        }),
+        mk_button(
+            &t(tr, "start-game", "Start Game"),
+            col(60, 120, 200),
+            move || push(&a1, UiAction::StartGame),
+        ),
         mk_button(&t(tr, "settings", "Settings"), col(70, 70, 90), move || {
             push(&a2, UiAction::OpenSettings)
         }),
@@ -213,7 +220,9 @@ fn pause_panel(
             .align_items(AlignItems::CENTER),
     )
     .child((
-        RText(t(tr, "paused", "Paused")).size(36.0).color(RColor::WHITE),
+        RText(t(tr, "paused", "Paused"))
+            .size(36.0)
+            .color(RColor::WHITE),
         spacer(16.0),
         mk_button(&t(tr, "resume", "Resume"), col(60, 140, 90), move || {
             push(&a1, UiAction::Resume)
@@ -221,17 +230,15 @@ fn pause_panel(
         mk_button(&t(tr, "settings", "Settings"), col(70, 70, 90), move || {
             push(&a2, UiAction::OpenSettings)
         }),
-        mk_button(&t(tr, "quit-to-title", "Quit to Title"), col(180, 60, 60), move || {
-            push(&a3, UiAction::QuitToTitle)
-        }),
+        mk_button(
+            &t(tr, "quit-to-title", "Quit to Title"),
+            col(180, 60, 60),
+            move || push(&a3, UiAction::QuitToTitle),
+        ),
     ))
 }
 
-fn settings_ui(
-    overlay: OverlayHandle,
-    st: &SharedUi,
-    actions: Arc<Mutex<Vec<UiAction>>>,
-) -> View {
+fn settings_ui(overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let a_m_down = actions.clone();
     let a_m_up = actions.clone();
     let a_s_down = actions.clone();
@@ -290,12 +297,20 @@ fn settings_ui(
             .clip_rounded(12.0)
             .align_items(AlignItems::CENTER),
     )
-    .child(RText(t(tr, "settings", "Settings")).size(36.0).color(RColor::WHITE))
+    .child(
+        RText(t(tr, "settings", "Settings"))
+            .size(36.0)
+            .color(RColor::WHITE),
+    )
     .child(spacer(12.0))
     .child(
-        RText(format!("{}: {:.0}%", t(tr, "master-volume", "Master"), master * 100.0))
-            .size(18.0)
-            .color(RColor::WHITE),
+        RText(format!(
+            "{}: {:.0}%",
+            t(tr, "master-volume", "Master"),
+            master * 100.0
+        ))
+        .size(18.0)
+        .color(RColor::WHITE),
     )
     .child(Row(Modifier::new().gap(8.0)).child((
         mk_button_sm("-", move || {
@@ -307,9 +322,13 @@ fn settings_ui(
     )))
     .child(spacer(8.0))
     .child(
-        RText(format!("{}: {:.0}%", t(tr, "sfx-volume", "SFX"), sfx * 100.0))
-            .size(18.0)
-            .color(RColor::WHITE),
+        RText(format!(
+            "{}: {:.0}%",
+            t(tr, "sfx-volume", "SFX"),
+            sfx * 100.0
+        ))
+        .size(18.0)
+        .color(RColor::WHITE),
     )
     .child(Row(Modifier::new().gap(8.0)).child((
         mk_button_sm("-", move || push(&a_s_down, UiAction::SetSfxVol(sfx - 0.1))),
@@ -323,12 +342,16 @@ fn settings_ui(
     )
     .child(Row(Modifier::new().gap(6.0)).child(lang_dropdown))
     .child(spacer(16.0))
-    .child(mk_button(&t(tr, "save", "Save"), col(60, 120, 200), move || {
-        push(&a_save, UiAction::SaveSettings)
-    }))
-    .child(mk_button(&t(tr, "back", "Back"), col(70, 70, 90), move || {
-        push(&a_back, UiAction::CloseOverlay)
-    }));
+    .child(mk_button(
+        &t(tr, "save", "Save"),
+        col(60, 120, 200),
+        move || push(&a_save, UiAction::SaveSettings),
+    ))
+    .child(mk_button(
+        &t(tr, "back", "Back"),
+        col(70, 70, 90),
+        move || push(&a_back, UiAction::CloseOverlay),
+    ));
 
     Column(
         Modifier::new()
@@ -352,7 +375,9 @@ fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .align_items(AlignItems::CENTER),
     )
     .child((
-        RText(t(tr, "credits", "Credits")).size(36.0).color(RColor::WHITE),
+        RText(t(tr, "credits", "Credits"))
+            .size(36.0)
+            .color(RColor::WHITE),
         spacer(12.0),
         RText("Original Godot template: mlm-games")
             .size(16.0)
@@ -395,9 +420,13 @@ fn ingame_hud(st: &SharedUi) -> View {
         RText(format!("{}: {}", t(tr, "best", "Best"), st.high_score))
             .size(16.0)
             .color(col(200, 200, 200)),
-        RText(t(tr, "controls-hint", "WASD move  Click/Space shoot  Esc pause"))
-            .size(14.0)
-            .color(col(180, 180, 180)),
+        RText(t(
+            tr,
+            "controls-hint",
+            "WASD move  Click/Space shoot  Esc pause",
+        ))
+        .size(14.0)
+        .color(col(180, 180, 180)),
     ))
 }
 
