@@ -13,13 +13,31 @@ pub mod vfx;
 
 use bevy::prelude::*;
 
-use self::i18n::I18nPlugin;
-use self::ui_effects::UiEffectsPlugin;
-use self::vfx::VfxPlugin;
+use audio::AudioPlugin;
+use center_pivot::CenterPivotPlugin;
+use game_feel::GameFeelPlugin;
+use i18n::I18nPlugin;
+use juice::JuicePlugin;
+use save::SavePlugin;
+use screen_effects::ScreenEffectsPlugin;
+use transitions::TransitionsPlugin;
+use ui_effects::UiEffectsPlugin;
+use vfx::VfxPlugin;
 
 pub struct EcosystemPlugin;
 impl Plugin for EcosystemPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((I18nPlugin, VfxPlugin, UiEffectsPlugin));
+        app.add_plugins((
+            AudioPlugin,
+            CenterPivotPlugin,
+            GameFeelPlugin,
+            I18nPlugin,
+            JuicePlugin,
+            SavePlugin,
+            ScreenEffectsPlugin,
+            TransitionsPlugin,
+            UiEffectsPlugin,
+            VfxPlugin,
+        ));
     }
 }

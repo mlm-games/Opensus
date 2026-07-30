@@ -18,11 +18,39 @@ impl<M: Component + Default> EntityPool<M> {
             _marker: std::marker::PhantomData,
         }
     }
+
+    pub fn active_count(&self) -> usize {
+        self.active.len()
+    }
+
+    pub fn available_count(&self) -> usize {
+        self.available.len()
+    }
+
+    pub fn total_count(&self) -> usize {
+        self.active.len() + self.available.len()
+    }
 }
 
 pub struct ObjectPool;
 
 impl ObjectPool {
+    pub fn prewarm<M: Component + Default>(
+        pool: &mut EntityPool<M>,
+        commands: &mut Commands,
+        count: usize,
+        spawn: impl FnMut(&mut EntityCommands),
+    ) {
+        let room = pool.max_size.saturating_sub(pool.active.len() + pool.available.len());
+        let actual = count.min(room);
+        let mut spawn = spawn;
+        for _ in 0..actual {
+            let mut ec = commands.spawn((Visibility::Hidden, M::default()));
+            spawn(&mut ec);
+            pool.available.push_back(ec.id());
+        }
+    }
+
     pub fn acquire<M: Component + Default>(
         pool: &mut EntityPool<M>,
         commands: &mut Commands,

@@ -64,7 +64,6 @@ impl GameFeel {
                 intensity,
                 duration,
             });
-            break;
         }
     }
 }

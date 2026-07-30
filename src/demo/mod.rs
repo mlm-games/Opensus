@@ -7,6 +7,7 @@ use crate::ecosystem::game_feel::GameFeel;
 use crate::ecosystem::juice::Juice;
 use crate::ecosystem::save::{SaveData, SaveManager};
 use crate::ecosystem::screen_effects::{ScreenEffects, Trauma};
+use crate::ecosystem::transitions::Transition;
 use crate::ecosystem::vfx::VfxSpawner;
 
 #[derive(Resource, Default)]
@@ -49,7 +50,8 @@ impl Plugin for DemoPlugin {
                     bullet_enemy_collision,
                 )
                     .run_if(in_state(AppState::InGame))
-                    .run_if(|p: Res<Paused>| !p.0),
+                    .run_if(|p: Res<Paused>| !p.0)
+                    .run_if(|t: Res<Transition>| !t.block_input),
             );
     }
 }

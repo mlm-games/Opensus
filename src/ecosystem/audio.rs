@@ -71,12 +71,26 @@ impl AudioM {
         ));
     }
 
-    pub fn play_music(commands: &mut Commands, handle: Handle<AudioSource>, volume: f32) {
+    pub fn play_music(
+        commands: &mut Commands,
+        handle: Handle<AudioSource>,
+        volume: f32,
+        music_q: &Query<Entity, With<MusicChannel>>,
+    ) {
+        for e in music_q.iter() {
+            commands.entity(e).despawn();
+        }
         commands.spawn((
             AudioPlayer::new(handle),
             PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::Linear(volume)),
             MusicChannel,
         ));
+    }
+
+    pub fn stop_music(commands: &mut Commands, music_q: &Query<Entity, With<MusicChannel>>) {
+        for e in music_q.iter() {
+            commands.entity(e).despawn();
+        }
     }
 
     pub fn play_ui(commands: &mut Commands, handle: Handle<AudioSource>, volume: f32) {

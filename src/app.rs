@@ -10,14 +10,9 @@ use crate::demo::DemoPlugin;
 use crate::dev_tools::DevToolsPlugin;
 use crate::ecosystem::{
     EcosystemPlugin,
-    audio::{AudioChannels, AudioPlugin},
-    center_pivot::apply_center_pivot,
-    game_feel::GameFeelPlugin,
+    audio::AudioChannels,
     i18n::{self, LocaleResources},
-    juice::JuicePlugin,
-    save::SavePlugin,
-    screen_effects::ScreenEffectsPlugin,
-    transitions::TransitionsPlugin,
+    transitions::Transition,
 };
 use crate::menus::{self, UiAction, UiBridge};
 use crate::screens::ScreensPlugin;
@@ -122,12 +117,6 @@ impl Plugin for AppPlugin {
             .add_plugins((
                 ThemePlugin,
                 EcosystemPlugin,
-                AudioPlugin,
-                SavePlugin,
-                GameFeelPlugin,
-                ScreenEffectsPlugin,
-                JuicePlugin,
-                TransitionsPlugin,
                 ScreensPlugin,
                 DemoPlugin,
                 DevToolsPlugin,
@@ -141,7 +130,6 @@ impl Plugin for AppPlugin {
                     handle_pause_input,
                     tick_pending_unpause,
                     sync_virtual_time_with_pause,
-                    apply_center_pivot,
                 )
                     .chain(),
             );
@@ -166,7 +154,7 @@ fn sync_shared_ui(
     bridge: Res<UiBridge>,
     save: Res<crate::ecosystem::save::SaveData>,
     score: Option<Res<crate::demo::Score>>,
-    transition: Res<crate::ecosystem::transitions::Transition>,
+    transition: Res<Transition>,
     flash: Res<crate::ecosystem::screen_effects::FlashWhite>,
     locale: Res<LocaleResources>,
     mut channels: ResMut<AudioChannels>,
@@ -320,8 +308,12 @@ fn handle_pause_input(
     mut overlay: ResMut<OverlayMenu>,
     mut virtual_time: ResMut<Time<Virtual>>,
     mut pending_unpause: ResMut<PendingUnpause>,
+    transition: Res<Transition>,
 ) {
     if *state.get() != AppState::InGame {
+        return;
+    }
+    if transition.block_input {
         return;
     }
     if !keys.just_pressed(KeyCode::Escape) {

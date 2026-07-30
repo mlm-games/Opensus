@@ -31,6 +31,7 @@ pub struct Transition {
     pub speed: f32,
     pub pending_state: Option<AppState>,
     pub overlay_alpha: f32,
+    pub circle_progress: f32,
     pub block_input: bool,
 }
 
@@ -44,6 +45,7 @@ impl Default for Transition {
             speed: 2.5,
             pending_state: None,
             overlay_alpha: 0.0,
+            circle_progress: 0.0,
             block_input: false,
         }
     }
@@ -104,6 +106,7 @@ fn tick_transition(
 ) {
     if !tr.active {
         tr.overlay_alpha = 0.0;
+        tr.circle_progress = 0.0;
         tr.block_input = false;
         return;
     }
@@ -111,9 +114,8 @@ fn tick_transition(
     match tr.phase {
         TransitionPhase::Covering => {
             tr.progress = (tr.progress + dt).min(1.0);
-            if tr.kind == TransitionKind::Fade {
-                tr.overlay_alpha = tr.progress;
-            }
+            let p = tr.progress;
+            update_visuals(&mut tr, p, true);
             if tr.progress >= 1.0 {
                 if let Some(s) = tr.pending_state.take() {
                     next_state.set(s);
@@ -124,13 +126,13 @@ fn tick_transition(
         }
         TransitionPhase::Uncovering => {
             tr.progress = (tr.progress + dt).min(1.0);
-            if tr.kind == TransitionKind::Fade {
-                tr.overlay_alpha = 1.0 - tr.progress;
-            }
+            let p = tr.progress;
+            update_visuals(&mut tr, p, false);
             if tr.progress >= 1.0 {
                 tr.active = false;
                 tr.phase = TransitionPhase::Idle;
                 tr.overlay_alpha = 0.0;
+                tr.circle_progress = 0.0;
                 tr.block_input = false;
             }
         }
@@ -138,8 +140,19 @@ fn tick_transition(
     }
 }
 
-pub fn block_input_during_transition(
-    _tr: Res<Transition>,
-    _next_state: ResMut<NextState<AppState>>,
-) {
+fn update_visuals(tr: &mut Transition, t: f32, covering: bool) {
+    match tr.kind {
+        TransitionKind::Fade => {
+            tr.overlay_alpha = if covering { t } else { 1.0 - t };
+            tr.circle_progress = 0.0;
+        }
+        TransitionKind::CircleWipe => {
+            tr.circle_progress = if covering { t } else { 1.0 - t };
+            tr.overlay_alpha = if covering { (t * 1.2).min(1.0) } else { ((1.0 - t) * 1.2).min(1.0) };
+        }
+    }
+}
+
+pub fn input_blocked(tr: Res<Transition>) -> bool {
+    tr.block_input
 }

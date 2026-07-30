@@ -3,9 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+const SAVE_VERSION: u32 = 1;
+
 #[derive(Resource, Clone, Serialize, Deserialize)]
 pub struct SaveData {
-    pub high_score: u32, // Temp
+    #[serde(default)]
+    pub version: u32,
+    pub high_score: u32,
     pub settings: SettingsData,
 }
 
@@ -31,6 +35,7 @@ impl Default for SettingsData {
 impl Default for SaveData {
     fn default() -> Self {
         Self {
+            version: SAVE_VERSION,
             high_score: 0,
             settings: SettingsData::default(),
         }
@@ -65,10 +70,14 @@ impl SaveManager {
 
     pub fn load() -> SaveData {
         let path = Self::path();
-        fs::read_to_string(path)
+        let mut data: SaveData = fs::read_to_string(path)
             .ok()
             .and_then(|s| ron::from_str(&s).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if data.version < SAVE_VERSION {
+            data.version = SAVE_VERSION;
+        }
+        data
     }
 }
 

@@ -1,16 +1,14 @@
 use bevy::prelude::*;
 
+/// Marker component - Bevy sprites are already centered by default.
+/// Add this to a sprite entity if you want to track that it uses center pivot
+/// (useful when replacing texture assets with different sizes).
+/// But might actually be removed later (just a remnant of the port)
 #[derive(Component)]
 pub struct CenterPivot;
 
-pub fn apply_center_pivot(
-    mut q: Query<(&mut Transform, &Sprite), (With<CenterPivot>, Changed<Sprite>)>,
-) {
-    for (mut tf, sprite) in &mut q {
-        if let Some(size) = sprite.custom_size {
-            tf.translation = tf.translation.truncate().extend(tf.translation.z);
-            tf.translation.x -= size.x * 0.5;
-            tf.translation.y -= size.y * 0.5;
-        }
-    }
+pub struct CenterPivotPlugin;
+
+impl Plugin for CenterPivotPlugin {
+    fn build(&self, _app: &mut App) {}
 }
