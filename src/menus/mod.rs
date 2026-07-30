@@ -2,13 +2,20 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use std::rc::Rc;
+
 use repose_core::View;
 use repose_core::prelude::{
-    AlignItems, AnimationSpec, Color as RColor, Easing, JustifyContent, Modifier,
+    AlignItems, AnimationSpec, Color as RColor, Easing, JustifyContent, Modifier, remember,
+};
+use repose_material::material3::{
+    ButtonConfig, DropdownMenu, DropdownMenuConfig, DropdownMenuEntry, DropdownMenuItem,
+    FilledTonalButton, MenuState,
 };
 use repose_ui::anim_ext::{
     AnimatedVisibility, AnimatedVisibilityConfig, EnterTransition, ExitTransition,
 };
+use repose_ui::overlay::OverlayHandle;
 use repose_ui::{Column, Row, Text as RText, TextStyle, ViewExt, ZStack};
 
 use crate::app::{AppState, OverlayMenu, SharedUi};
@@ -31,6 +38,7 @@ pub enum UiAction {
     SetMusicVol(f32),
     SaveSettings,
     NextLanguage,
+    SetLanguage(String),
 }
 
 #[derive(bevy::prelude::Resource, Clone)]
@@ -52,8 +60,13 @@ fn popup_anim_config(key: &str) -> AnimatedVisibilityConfig {
     }
 }
 
-pub fn compose_root(st: SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+pub fn compose_root(
+    overlay: OverlayHandle,
+    st: SharedUi,
+    actions: Arc<Mutex<Vec<UiAction>>>,
+) -> View {
     let root = ZStack(Modifier::new().fill_max_size());
+    let settings_view = settings_ui(overlay, &st, actions.clone());
 
     let content = match st.phase {
         AppState::Splash => splash_ui(),
@@ -62,7 +75,7 @@ pub fn compose_root(st: SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             title_ui(&st, actions.clone()),
             AnimatedVisibility(
                 st.overlay == OverlayMenu::Settings,
-                settings_ui(&st, actions.clone()),
+                settings_view.clone(),
                 popup_anim_config("title_settings"),
             ),
             AnimatedVisibility(
@@ -82,7 +95,7 @@ pub fn compose_root(st: SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 ),
                 AnimatedVisibility(
                     st.overlay == OverlayMenu::Settings,
-                    settings_ui(&st, actions.clone()),
+                    settings_view.clone(),
                     popup_anim_config("ingame_settings"),
                 ),
                 AnimatedVisibility(
@@ -214,12 +227,15 @@ fn pause_panel(
     ))
 }
 
-fn settings_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+fn settings_ui(
+    overlay: OverlayHandle,
+    st: &SharedUi,
+    actions: Arc<Mutex<Vec<UiAction>>>,
+) -> View {
     let a_m_down = actions.clone();
     let a_m_up = actions.clone();
     let a_s_down = actions.clone();
     let a_s_up = actions.clone();
-    let a_lang = actions.clone();
     let a_save = actions.clone();
     let a_back = actions.clone();
     let master = st.master_vol;
@@ -227,6 +243,44 @@ fn settings_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let tr = &st.translations;
     let lang = &st.language;
     let langs = &st.available_languages;
+    let overlay_clone = overlay.clone();
+    let actions_clone = actions.clone();
+
+    let menu_state: Rc<MenuState> = remember(MenuState::new);
+    let lang_items: Vec<DropdownMenuEntry> = langs
+        .iter()
+        .map(|l| {
+            let a = actions_clone.clone();
+            let code = l.clone();
+            let mut item = DropdownMenuItem::new(l.clone(), move || {
+                push(&a, UiAction::SetLanguage(code.clone()))
+            });
+            if l == lang {
+                item = item.disabled();
+            }
+            DropdownMenuEntry::Item(item)
+        })
+        .collect();
+    let menu_trigger = menu_state.clone();
+    let lang_label = st.language.clone();
+    let trigger = FilledTonalButton(
+        Modifier::new().width(100.0).height(40.0),
+        move || menu_trigger.open(),
+        ButtonConfig::default(),
+        move || RText(lang_label.clone()).size(20.0),
+    );
+
+    let lang_dropdown = DropdownMenu(
+        menu_state,
+        overlay_clone,
+        Modifier::new(),
+        trigger,
+        lang_items,
+        DropdownMenuConfig {
+            min_width: 100.0,
+            ..Default::default()
+        },
+    );
 
     let inner = Column(
         Modifier::new()
@@ -263,13 +317,11 @@ fn settings_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     )))
     .child(spacer(8.0))
     .child(
-        RText(format!("{}: {}", t(tr, "language", "Language"), lang))
+        RText(format!("{}:", t(tr, "language", "Language")))
             .size(18.0)
             .color(RColor::WHITE),
     )
-    .child(mk_button(&langs.join(" / "), col(50, 50, 70), move || {
-        push(&a_lang, UiAction::NextLanguage)
-    }))
+    .child(Row(Modifier::new().gap(6.0)).child(lang_dropdown))
     .child(spacer(16.0))
     .child(mk_button(&t(tr, "save", "Save"), col(60, 120, 200), move || {
         push(&a_save, UiAction::SaveSettings)
@@ -349,33 +401,22 @@ fn ingame_hud(st: &SharedUi) -> View {
     ))
 }
 
-fn mk_button(label: &str, bg: RColor, on_click: impl Fn() + 'static) -> View {
-    Column(
-        Modifier::new()
-            .width(260.0)
-            .height(52.0)
-            .margin(8.0)
-            .background(bg)
-            .clip_rounded(8.0)
-            .justify_content(JustifyContent::CENTER)
-            .align_items(AlignItems::CENTER)
-            .on_click(on_click),
+fn mk_button(label: &str, _bg: RColor, on_click: impl Fn() + 'static) -> View {
+    FilledTonalButton(
+        Modifier::new().width(260.0).height(52.0).margin(8.0),
+        on_click,
+        ButtonConfig::default(),
+        move || RText(label).size(20.0),
     )
-    .child(RText(label).size(20.0).color(RColor::WHITE))
 }
 
 fn mk_button_sm(label: &str, on_click: impl Fn() + 'static) -> View {
-    Column(
-        Modifier::new()
-            .width(48.0)
-            .height(40.0)
-            .background(col(60, 60, 80))
-            .clip_rounded(6.0)
-            .justify_content(JustifyContent::CENTER)
-            .align_items(AlignItems::CENTER)
-            .on_click(on_click),
+    FilledTonalButton(
+        Modifier::new().width(48.0).height(40.0),
+        on_click,
+        ButtonConfig::default(),
+        move || RText(label).size(20.0),
     )
-    .child(RText(label).size(20.0).color(RColor::WHITE))
 }
 
 fn col(r: u8, g: u8, b: u8) -> RColor {

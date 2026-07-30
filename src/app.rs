@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
 use repose_bevy::{ReposePlugin, ReposePluginSettings};
+use repose_core::{prelude::Modifier, remember};
+use repose_ui::overlay::OverlayHandle;
 
 use crate::demo::DemoPlugin;
 use crate::dev_tools::DevToolsPlugin;
@@ -52,6 +54,7 @@ pub struct SharedUi {
     pub transition_alpha: f32,
     pub flash_alpha: f32,
     pub language: String,
+    pub saved_language: String,
     pub available_languages: Vec<String>,
     pub translations: HashMap<String, String>,
 }
@@ -70,6 +73,7 @@ impl Default for SharedUi {
             transition_alpha: 0.0,
             flash_alpha: 0.0,
             language: "en".to_string(),
+            saved_language: "en".to_string(),
             available_languages: vec!["en".to_string()],
             translations: HashMap::new(),
         }
@@ -103,7 +107,10 @@ impl Plugin for AppPlugin {
                 move |_s, _c| {
                     let st = shared_ui.lock().unwrap().clone();
                     let acts = actions_ui.clone();
-                    menus::compose_root(st, acts)
+                    let overlay_rc = remember(OverlayHandle::new);
+                    let overlay = (*overlay_rc).clone();
+                    let root = menus::compose_root(overlay.clone(), st, acts);
+                    overlay.host(Modifier::new().fill_max_size(), root)
                 },
             ))
             .add_plugins((
@@ -222,18 +229,30 @@ fn process_ui_actions(
             UiAction::StartGame => {
                 transition.begin_to_state(AppState::InGame);
             }
-            UiAction::OpenSettings => *overlay = OverlayMenu::Settings,
+            UiAction::OpenSettings => {
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    ui.saved_language = locale.current.clone();
+                }
+                *overlay = OverlayMenu::Settings;
+            }
             UiAction::OpenCredits => *overlay = OverlayMenu::Credits,
-            UiAction::CloseOverlay => match *overlay {
-                OverlayMenu::Settings | OverlayMenu::Credits if paused.0 => {
-                    *overlay = OverlayMenu::Pause;
+            UiAction::CloseOverlay => {
+                if *overlay == OverlayMenu::Settings {
+                    if let Ok(ui) = bridge.shared.lock() {
+                        locale.set_locale(&ui.saved_language);
+                    }
                 }
-                OverlayMenu::Pause if paused.0 => {
-                    *overlay = OverlayMenu::None;
-                    pending_unpause.0 = Some(Timer::from_seconds(0.2, TimerMode::Once));
-                }
-                _ => {
-                    *overlay = OverlayMenu::None;
+                match *overlay {
+                    OverlayMenu::Settings | OverlayMenu::Credits if paused.0 => {
+                        *overlay = OverlayMenu::Pause;
+                    }
+                    OverlayMenu::Pause if paused.0 => {
+                        *overlay = OverlayMenu::None;
+                        pending_unpause.0 = Some(Timer::from_seconds(0.2, TimerMode::Once));
+                    }
+                    _ => {
+                        *overlay = OverlayMenu::None;
+                    }
                 }
             },
             UiAction::Resume => {
@@ -258,8 +277,12 @@ fn process_ui_actions(
                     save.settings.master_volume = ui.master_vol;
                     save.settings.sfx_volume = ui.sfx_vol;
                     save.settings.music_volume = ui.music_vol;
+                    save.settings.language = locale.current.clone();
                 }
                 let _ = crate::ecosystem::save::SaveManager::save(&save);
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    ui.saved_language = locale.current.clone();
+                }
                 if paused.0 {
                     *overlay = OverlayMenu::Pause;
                 } else {
@@ -273,6 +296,11 @@ fn process_ui_actions(
                 let next = (idx + 1) % available.len();
                 if let Some(next_locale) = available.get(next) {
                     locale.set_locale(next_locale);
+                }
+            }
+            UiAction::SetLanguage(ref lang) => {
+                if locale.available.contains(lang) {
+                    locale.set_locale(lang);
                 }
             }
         }

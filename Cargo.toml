@@ -65,6 +65,7 @@ repose-bevy = { git = "https://github.com/mlm-games/repose-bevy", default-featur
 wgpu = { version = "30", features = ["webgpu", "webgl"] }
 repose-core = "0.25"
 repose-ui = "0.25"
+repose-material = "0.25"
 repose-render-wgpu = "0.25"
 rand = "0.10"
 serde = { version = "1", features = ["derive"] }
@@ -117,4 +118,5 @@ strip = "debuginfo"
 # [patch.crates-io]
 # repose-core = { path = "../../../Repos/repose/crates/repose-core" }
 # repose-ui = { path = "../../../Repos/repose/crates/repose-ui" }
+# repose-material = { path = "../../../Repos/repose/crates/repose-material" }
 # repose-render-wgpu = { path = "../../../Repos/repose/crates/repose-render-wgpu" }
