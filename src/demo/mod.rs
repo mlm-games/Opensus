@@ -6,20 +6,13 @@ use crate::app::{AppState, Paused};
 use crate::ecosystem::game_feel::GameFeel;
 use crate::ecosystem::juice::Juice;
 use crate::ecosystem::save::{SaveData, SaveManager};
-use crate::ecosystem::screen_effects::{
-    ChromaticAberration, FlashWhite, FreezeFrame, ScreenEffects, Trauma,
-};
+use crate::ecosystem::screen_effects::{ChromaticAberration, ScreenEffects, Trauma};
 use crate::ecosystem::transitions::Transition;
 use crate::ecosystem::vfx::VfxSpawner;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PowerupKind {
     Chromatic,
-    Flash,
-    Freeze,
-    Trauma,
-    DamageAll,
-    CircleWipe,
 }
 
 #[derive(Component)]
@@ -51,11 +44,18 @@ struct Enemy {
 #[derive(Component)]
 struct DemoCleanup;
 
+#[derive(Resource)]
+struct PowerupActive(Timer);
+
 pub struct DemoPlugin;
 impl Plugin for DemoPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Score>()
-            .add_systems(OnEnter(AppState::InGame), setup_demo)
+            .insert_resource(PowerupActive(Timer::new(
+                core::time::Duration::ZERO,
+                TimerMode::Once,
+            )))
+            .add_systems(OnEnter(AppState::InGame), (setup_demo, init_powerup))
             .add_systems(OnExit(AppState::InGame), cleanup_demo)
             .add_systems(
                 Update,
@@ -68,6 +68,7 @@ impl Plugin for DemoPlugin {
                     bullet_enemy_collision,
                     move_powerups,
                     collect_powerups,
+                    tick_powerup,
                 )
                     .run_if(in_state(AppState::InGame))
                     .run_if(|p: Res<Paused>| !p.0)
@@ -94,6 +95,10 @@ fn setup_demo(mut commands: Commands, mut score: ResMut<Score>) {
         ))
         .id();
     Juice::pop_in(&mut commands, player, 0.35);
+}
+
+fn init_powerup(mut powerup: ResMut<PowerupActive>) {
+    powerup.0.finish();
 }
 
 fn cleanup_demo(mut commands: Commands, q: Query<Entity, With<DemoCleanup>>) {
@@ -130,12 +135,30 @@ fn player_move(
     }
 }
 
+fn spawn_bullet(commands: &mut Commands, origin: Vec3, dir: Vec2) {
+    let angle = dir.y.atan2(dir.x) - f32::to_radians(90.0);
+    commands.spawn((
+        DemoCleanup,
+        Bullet {
+            vel: dir * 520.0,
+            life: Timer::from_seconds(1.2, TimerMode::Once),
+        },
+        Sprite {
+            color: Color::srgb(1.0, 0.9, 0.3),
+            custom_size: Some(Vec2::new(6.0, 14.0)),
+            ..default()
+        },
+        Transform::from_translation(origin).with_rotation(Quat::from_rotation_z(angle)),
+    ));
+}
+
 fn player_shoot(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut commands: Commands,
     mut q: Query<(Entity, &mut Player, &Transform)>,
+    powerup: Option<Res<PowerupActive>>,
 ) {
     let Ok((e, mut p, tf)) = q.single_mut() else {
         return;
@@ -144,19 +167,13 @@ fn player_shoot(
     let fire = mouse.pressed(MouseButton::Left) || keys.pressed(KeyCode::Space);
     if fire && p.cooldown.just_finished() {
         GameFeel::add_recoil(&mut commands, e, Vec2::NEG_Y, 6.0);
-        commands.spawn((
-            DemoCleanup,
-            Bullet {
-                vel: Vec2::Y * 520.0,
-                life: Timer::from_seconds(1.2, TimerMode::Once),
-            },
-            Sprite {
-                color: Color::srgb(1.0, 0.9, 0.3),
-                custom_size: Some(Vec2::new(6.0, 14.0)),
-                ..default()
-            },
-            Transform::from_translation(tf.translation + Vec3::Y * 20.0),
-        ));
+        let origin = tf.translation + Vec3::Y * 20.0;
+        let triple = powerup.as_ref().is_some_and(|p| !p.0.is_finished());
+        spawn_bullet(&mut commands, origin, Vec2::Y);
+        if triple {
+            spawn_bullet(&mut commands, origin, Vec2::new(-1.0, 1.0).normalize());
+            spawn_bullet(&mut commands, origin, Vec2::new(1.0, 1.0).normalize());
+        }
     }
 }
 
@@ -206,22 +223,9 @@ fn move_enemies(time: Res<Time>, mut q: Query<(&Enemy, &mut Transform)>) {
 }
 
 fn spawn_powerup(commands: &mut Commands, pos: Vec2) {
-    const KINDS: [PowerupKind; 6] = [
-        PowerupKind::Chromatic,
-        PowerupKind::Flash,
-        PowerupKind::Freeze,
-        PowerupKind::Trauma,
-        PowerupKind::DamageAll,
-        PowerupKind::CircleWipe,
-    ];
-    let kind = KINDS[rand::rng().random_range(0..KINDS.len())];
+    let kind = PowerupKind::Chromatic;
     let color = match kind {
         PowerupKind::Chromatic => Color::srgb(0.2, 0.6, 1.0),
-        PowerupKind::Flash => Color::srgb(1.0, 1.0, 0.8),
-        PowerupKind::Freeze => Color::srgb(0.5, 0.9, 1.0),
-        PowerupKind::Trauma => Color::srgb(1.0, 0.5, 0.0),
-        PowerupKind::DamageAll => Color::srgb(1.0, 0.1, 0.1),
-        PowerupKind::CircleWipe => Color::srgb(0.8, 0.3, 1.0),
     };
     let e = commands
         .spawn((
@@ -273,7 +277,7 @@ fn bullet_enemy_collision(
                     Color::srgb(1.0, 0.4, 0.3),
                     (40.0, 100.0),
                 );
-                if rand::rng().random_range(0.0..1.0) < 0.35 {
+                if rand::rng().random_range(0.0..1.0) < 0.05 {
                     spawn_powerup(&mut commands, pos);
                 }
                 if score.0 > save.high_score {
@@ -283,6 +287,10 @@ fn bullet_enemy_collision(
             }
         }
     }
+}
+
+fn tick_powerup(time: Res<Time>, mut powerup_active: ResMut<PowerupActive>) {
+    powerup_active.0.tick(time.delta());
 }
 
 fn move_powerups(time: Res<Time>, mut q: Query<(&PowerupDrop, &mut Transform)>) {
@@ -299,11 +307,8 @@ fn collect_powerups(
     mut commands: Commands,
     player: Query<&Transform, With<Player>>,
     powerups: Query<(Entity, &Transform, &PowerupDrop)>,
-    mut trauma: ResMut<Trauma>,
-    mut flash: ResMut<FlashWhite>,
-    mut freeze: ResMut<FreezeFrame>,
     mut chroma: ResMut<ChromaticAberration>,
-    mut transition: ResMut<Transition>,
+    mut powerup_active: ResMut<PowerupActive>,
 ) {
     let Ok(pt) = player.single() else {
         return;
@@ -317,22 +322,7 @@ fn collect_powerups(
         match drop.kind {
             PowerupKind::Chromatic => {
                 ScreenEffects::chromatic_pulse(&mut chroma, 0.8);
-            }
-            PowerupKind::Flash => {
-                ScreenEffects::flash_white(&mut flash, 0.4);
-            }
-            PowerupKind::Freeze => {
-                ScreenEffects::freeze_frame(&mut freeze, 0.15);
-            }
-            PowerupKind::Trauma => {
-                ScreenEffects::add_trauma(&mut trauma, 0.6);
-            }
-            PowerupKind::DamageAll => {
-                ScreenEffects::add_trauma(&mut trauma, 0.8);
-                ScreenEffects::flash_white(&mut flash, 0.3);
-            }
-            PowerupKind::CircleWipe => {
-                transition.circle_progress = 1.0;
+                powerup_active.0 = Timer::from_seconds(5.0, TimerMode::Once);
             }
         }
     }
