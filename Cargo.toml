@@ -75,12 +75,10 @@ repose-core = "0.25"
 repose-ui = "0.25"
 repose-material = "0.25"
 repose-render-wgpu = "0.25"
+game-utils = { git = "https://github.com/mlm-games/game-utils" }
+game-utils-bevy = { git = "https://github.com/mlm-games/game-utils" }
 rand = "0.10"
 serde = { version = "1", features = ["derive"] }
-ron = "0.12"
-directories = "6"
-unic-langid = "0.9"
-fluent-bundle = "0.16"
 avian2d = { git = "https://github.com/avianphysics/avian", optional = true, default-features = false, features = [
     "2d",
     "parry-f32",

@@ -3,12 +3,13 @@ use bevy::prelude::*;
 use rand::RngExt;
 
 use crate::app::{AppState, Paused};
-use crate::ecosystem::game_feel::GameFeel;
-use crate::ecosystem::juice::Juice;
-use crate::ecosystem::save::{SaveData, SaveManager};
-use crate::ecosystem::screen_effects::{ChromaticAberration, ScreenEffects, Trauma};
-use crate::ecosystem::transitions::Transition;
-use crate::ecosystem::vfx::VfxSpawner;
+use crate::save::SaveData;
+use game_utils_bevy::game_feel::GameFeel;
+use game_utils_bevy::juice::Juice;
+use game_utils_bevy::save::SaveManager;
+use game_utils_bevy::screen_effects::{ChromaticAberration, ScreenEffects, Trauma};
+use game_utils_bevy::transitions::Transition;
+use game_utils_bevy::vfx::VfxSpawner;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PowerupKind {
@@ -72,7 +73,7 @@ impl Plugin for DemoPlugin {
                 )
                     .run_if(in_state(AppState::InGame))
                     .run_if(|p: Res<Paused>| !p.0)
-                    .run_if(|t: Res<Transition>| !t.block_input),
+                    .run_if(|t: Res<Transition<AppState>>| !t.block_input),
             );
     }
 }
@@ -250,6 +251,7 @@ fn bullet_enemy_collision(
     mut score: ResMut<Score>,
     mut trauma: ResMut<Trauma>,
     mut save: ResMut<SaveData>,
+    manager: Res<SaveManager>,
     bullets: Query<(Entity, &Transform), With<Bullet>>,
     enemies: Query<(Entity, &Transform), With<Enemy>>,
     gamepads: Query<(Entity, &Gamepad)>,
@@ -282,7 +284,7 @@ fn bullet_enemy_collision(
                 }
                 if score.0 > save.high_score {
                     save.high_score = score.0;
-                    let _ = SaveManager::save(&save);
+                    let _ = manager.save(&*save);
                 }
             }
         }

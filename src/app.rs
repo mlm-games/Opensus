@@ -8,16 +8,50 @@ use repose_ui::overlay::OverlayHandle;
 
 use crate::demo::DemoPlugin;
 use crate::dev_tools::DevToolsPlugin;
-use crate::ecosystem::{
-    EcosystemPlugin,
-    audio::AudioChannels,
-    i18n::{self, LocaleResources},
-    post_process::{ScreenEffectSettings, sync_post_process_settings},
-    transitions::Transition,
-};
 use crate::menus::{self, UiAction, UiBridge};
+use crate::save::SaveData;
 use crate::screens::ScreensPlugin;
 use crate::theme::ThemePlugin;
+use game_utils_bevy::{
+    EcosystemPlugin,
+    audio::AudioChannels,
+    i18n::{self, I18nPlugin, LocaleResources},
+    post_process::{ScreenEffectSettings, sync_post_process_settings},
+    save::{SaveManager, SavePlugin},
+    screen_effects::CameraBase,
+    transitions::Transition,
+};
+
+const TRANSLATION_KEYS: &[&str] = &[
+    "app-title",
+    "start-game",
+    "settings",
+    "credits",
+    "quit",
+    "paused",
+    "resume",
+    "quit-to-title",
+    "save",
+    "back",
+    "master-volume",
+    "sfx-volume",
+    "music-volume",
+    "language",
+    "score",
+    "best",
+    "controls-hint",
+    "loading",
+];
+
+const LOCALES: &[(&str, &str)] = &[
+    ("en", include_str!("../assets/locales/en/main.ftl")),
+    ("es", include_str!("../assets/locales/es/main.ftl")),
+    ("fr", include_str!("../assets/locales/fr/main.ftl")),
+    ("de", include_str!("../assets/locales/de/main.ftl")),
+    ("ja", include_str!("../assets/locales/ja/main.ftl")),
+    ("zh", include_str!("../assets/locales/zh/main.ftl")),
+    ("pt", include_str!("../assets/locales/pt/main.ftl")),
+];
 
 #[derive(States, Default, Clone, Eq, PartialEq, Debug, Hash)]
 pub enum AppState {
@@ -117,7 +151,14 @@ impl Plugin for AppPlugin {
             ))
             .add_plugins((
                 ThemePlugin,
-                EcosystemPlugin,
+                EcosystemPlugin::<AppState>::new(I18nPlugin::new(TRANSLATION_KEYS, LOCALES)),
+                SavePlugin::<SaveData>::new(SaveManager::new(
+                    "com",
+                    "mlm-games",
+                    "my-ecosystem-bevy",
+                    "save.ron",
+                    1,
+                )),
                 ScreensPlugin,
                 DemoPlugin,
                 DevToolsPlugin,
@@ -127,7 +168,7 @@ impl Plugin for AppPlugin {
                 Update,
                 (
                     sync_shared_ui,
-                    sync_post_process_settings,
+                    sync_post_process_settings::<AppState>,
                     process_ui_actions,
                     handle_pause_input,
                     tick_pending_unpause,
@@ -142,7 +183,7 @@ fn setup_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
         Transform::from_xyz(0.0, 0.0, 1000.0),
-        crate::ecosystem::screen_effects::CameraBase {
+        CameraBase {
             translation: Vec3::new(0.0, 0.0, 1000.0),
             rotation: 0.0,
         },
@@ -155,10 +196,10 @@ fn sync_shared_ui(
     paused: Res<Paused>,
     overlay: Res<OverlayMenu>,
     bridge: Res<UiBridge>,
-    save: Res<crate::ecosystem::save::SaveData>,
+    save: Res<SaveData>,
     score: Option<Res<crate::demo::Score>>,
-    transition: Res<Transition>,
-    flash: Res<crate::ecosystem::screen_effects::FlashWhite>,
+    transition: Res<Transition<AppState>>,
+    flash: Res<game_utils_bevy::screen_effects::FlashWhite>,
     locale: Res<LocaleResources>,
     mut channels: ResMut<AudioChannels>,
 ) {
@@ -211,9 +252,10 @@ fn process_ui_actions(
     bridge: Res<UiBridge>,
     mut paused: ResMut<Paused>,
     mut overlay: ResMut<OverlayMenu>,
-    mut save: ResMut<crate::ecosystem::save::SaveData>,
+    mut save: ResMut<SaveData>,
     mut exit: MessageWriter<AppExit>,
-    mut transition: ResMut<crate::ecosystem::transitions::Transition>,
+    mut transition: ResMut<Transition<AppState>>,
+    manager: Res<SaveManager>,
     mut virtual_time: ResMut<Time<Virtual>>,
     mut pending_unpause: ResMut<PendingUnpause>,
     mut locale: ResMut<LocaleResources>,
@@ -276,7 +318,7 @@ fn process_ui_actions(
                     save.settings.music_volume = ui.music_vol;
                     save.settings.language = locale.current.clone();
                 }
-                let _ = crate::ecosystem::save::SaveManager::save(&save);
+                let _ = manager.save(&*save);
                 if let Ok(mut ui) = bridge.shared.lock() {
                     ui.saved_language = locale.current.clone();
                 }
@@ -311,7 +353,7 @@ fn handle_pause_input(
     mut overlay: ResMut<OverlayMenu>,
     mut virtual_time: ResMut<Time<Virtual>>,
     mut pending_unpause: ResMut<PendingUnpause>,
-    transition: Res<Transition>,
+    transition: Res<Transition<AppState>>,
 ) {
     if *state.get() != AppState::InGame {
         return;

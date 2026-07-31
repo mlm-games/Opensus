@@ -1,7 +1,7 @@
 use bevy::prelude::*;
+use game_utils_bevy::transitions::Transition;
 
 use crate::app::AppState;
-use crate::ecosystem::transitions::Transition;
 
 pub struct ScreensPlugin;
 impl Plugin for ScreensPlugin {
@@ -23,7 +23,7 @@ struct LoadingTimer(Timer);
 
 fn tick_splash(
     time: Res<Time<Real>>,
-    mut tr: ResMut<Transition>,
+    mut tr: ResMut<Transition<AppState>>,
     timer: Option<ResMut<SplashTimer>>,
 ) {
     let Some(mut timer) = timer else { return };
@@ -34,7 +34,7 @@ fn tick_splash(
 
 fn tick_loading(
     time: Res<Time<Real>>,
-    mut tr: ResMut<Transition>,
+    mut tr: ResMut<Transition<AppState>>,
     timer: Option<ResMut<LoadingTimer>>,
 ) {
     let Some(mut timer) = timer else { return };
