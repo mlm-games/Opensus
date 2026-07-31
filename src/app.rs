@@ -19,7 +19,7 @@ use game_utils_bevy::{
     post_process::{ScreenEffectSettings, sync_post_process_settings},
     save::{SaveManager, SavePlugin},
     screen_effects::CameraBase,
-    transitions::{Transition, TransitionKind},
+    transitions::{CircleWipeDirection, Transition, TransitionKind},
 };
 
 const TRANSLATION_KEYS: &[&str] = &[
@@ -280,7 +280,10 @@ fn process_ui_actions(
     for action in q.drain(..) {
         match action {
             UiAction::StartGame => {
-                transition.begin_to_state_with(AppState::InGame, TransitionKind::CircleWipe);
+                transition.begin_to_state_with(
+                    AppState::InGame,
+                    TransitionKind::CircleWipe(CircleWipeDirection::Expand),
+                );
             }
             UiAction::OpenSettings => {
                 if let Ok(mut ui) = bridge.shared.lock() {
