@@ -243,10 +243,13 @@ fn settings_ui(overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<UiA
     let a_m_up = actions.clone();
     let a_s_down = actions.clone();
     let a_s_up = actions.clone();
+    let a_mu_down = actions.clone();
+    let a_mu_up = actions.clone();
     let a_save = actions.clone();
     let a_back = actions.clone();
     let master = st.master_vol;
     let sfx = st.sfx_vol;
+    let music = st.music_vol;
     let tr = &st.translations;
     let lang = &st.language;
     let langs = &st.available_languages;
@@ -333,6 +336,24 @@ fn settings_ui(overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<UiA
     .child(Row(Modifier::new().gap(8.0)).child((
         mk_button_sm("-", move || push(&a_s_down, UiAction::SetSfxVol(sfx - 0.1))),
         mk_button_sm("+", move || push(&a_s_up, UiAction::SetSfxVol(sfx + 0.1))),
+    )))
+    .child(spacer(8.0))
+    .child(
+        RText(format!(
+            "{}: {:.0}%",
+            t(tr, "music-volume", "Music"),
+            music * 100.0
+        ))
+        .size(18.0)
+        .color(RColor::WHITE),
+    )
+    .child(Row(Modifier::new().gap(8.0)).child((
+        mk_button_sm("-", move || {
+            push(&a_mu_down, UiAction::SetMusicVol(music - 0.1))
+        }),
+        mk_button_sm("+", move || {
+            push(&a_mu_up, UiAction::SetMusicVol(music + 0.1))
+        }),
     )))
     .child(spacer(8.0))
     .child(

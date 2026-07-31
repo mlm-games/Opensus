@@ -19,7 +19,7 @@ use game_utils_bevy::{
     post_process::{ScreenEffectSettings, sync_post_process_settings},
     save::{SaveManager, SavePlugin},
     screen_effects::CameraBase,
-    transitions::Transition,
+    transitions::{Transition, TransitionKind},
 };
 
 const TRANSLATION_KEYS: &[&str] = &[
@@ -167,6 +167,7 @@ impl Plugin for AppPlugin {
             .add_systems(
                 Update,
                 (
+                    apply_saved_settings,
                     sync_shared_ui,
                     sync_post_process_settings::<AppState>,
                     process_ui_actions,
@@ -176,6 +177,19 @@ impl Plugin for AppPlugin {
                 )
                     .chain(),
             );
+    }
+}
+
+fn apply_saved_settings(save: Res<SaveData>, mut locale: ResMut<LocaleResources>) {
+    if !save.is_added() && !save.is_changed() {
+        return;
+    }
+    if locale
+        .available
+        .iter()
+        .any(|l| l == &save.settings.language)
+    {
+        locale.set_locale(&save.settings.language);
     }
 }
 
@@ -266,7 +280,7 @@ fn process_ui_actions(
     for action in q.drain(..) {
         match action {
             UiAction::StartGame => {
-                transition.begin_to_state(AppState::InGame);
+                transition.begin_to_state_with(AppState::InGame, TransitionKind::CircleWipe);
             }
             UiAction::OpenSettings => {
                 if let Ok(mut ui) = bridge.shared.lock() {
