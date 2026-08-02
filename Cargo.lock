@@ -3503,7 +3503,7 @@ dependencies = [
 [[package]]
 name = "game-utils"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/game-utils#260a952afee99967fb6bce08988f09fd85b9977c"
+source = "git+https://github.com/mlm-games/game-utils#bd5c4d065ab1df8adcd3e7b7fb447ae11c3e4d26"
 dependencies = [
  "directories",
  "fluent-bundle",
@@ -3516,7 +3516,7 @@ dependencies = [
 [[package]]
 name = "game-utils-bevy"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/game-utils#260a952afee99967fb6bce08988f09fd85b9977c"
+source = "git+https://github.com/mlm-games/game-utils#bd5c4d065ab1df8adcd3e7b7fb447ae11c3e4d26"
 dependencies = [
  "bevy 0.20.0-dev",
  "game-utils",

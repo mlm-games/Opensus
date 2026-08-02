@@ -6,6 +6,7 @@ use repose_bevy::{ReposePlugin, ReposePluginSettings};
 use repose_core::{prelude::Modifier, remember};
 use repose_ui::overlay::OverlayHandle;
 
+use crate::asset_tracking::AssetsLoading;
 use crate::demo::DemoPlugin;
 use crate::dev_tools::DevToolsPlugin;
 use crate::menus::{self, UiAction, UiBridge};
@@ -19,7 +20,7 @@ use game_utils_bevy::{
     post_process::{ScreenEffectSettings, sync_post_process_settings},
     save::{SaveManager, SavePlugin},
     screen_effects::CameraBase,
-    transitions::{CircleWipeDirection, Transition, TransitionKind},
+    transitions::Transition,
 };
 
 const TRANSLATION_KEYS: &[&str] = &[
@@ -81,6 +82,7 @@ pub struct PendingUnpause(pub Option<Timer>);
 pub struct SharedUi {
     pub phase: AppState,
     pub paused: bool,
+    pub loading_progress: f32,
     pub overlay: OverlayMenu,
     pub master_vol: f32,
     pub sfx_vol: f32,
@@ -100,6 +102,7 @@ impl Default for SharedUi {
         Self {
             phase: AppState::Splash,
             paused: false,
+            loading_progress: 0.0,
             overlay: OverlayMenu::None,
             master_vol: 1.0,
             sfx_vol: 1.0,
@@ -216,6 +219,8 @@ fn sync_shared_ui(
     flash: Res<game_utils_bevy::screen_effects::FlashWhite>,
     locale: Res<LocaleResources>,
     mut channels: ResMut<AudioChannels>,
+    loading: Option<Res<AssetsLoading>>,
+    asset_server: Res<AssetServer>,
 ) {
     let Ok(mut ui) = bridge.shared.lock() else {
         return;
@@ -235,6 +240,15 @@ fn sync_shared_ui(
     ui.language = locale.current.clone();
     ui.available_languages = locale.available.clone();
     ui.translations = i18n::get_current_translations(&locale);
+    ui.loading_progress = match loading {
+        Some(l) if !l.0.is_empty() => {
+            l.0.iter()
+                .filter(|h| asset_server.is_loaded_with_dependencies(h.id()))
+                .count() as f32
+                / l.0.len() as f32
+        }
+        _ => 1.0,
+    };
     channels.master = save.settings.master_volume;
     channels.sfx = save.settings.sfx_volume;
     channels.music = save.settings.music_volume;
@@ -280,10 +294,7 @@ fn process_ui_actions(
     for action in q.drain(..) {
         match action {
             UiAction::StartGame => {
-                transition.begin_to_state_with(
-                    AppState::InGame,
-                    TransitionKind::CircleWipe(CircleWipeDirection::Expand),
-                );
+                transition.begin_to_state(AppState::Loading);
             }
             UiAction::OpenSettings => {
                 if let Ok(mut ui) = bridge.shared.lock() {

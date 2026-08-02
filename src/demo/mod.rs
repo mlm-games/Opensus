@@ -167,7 +167,7 @@ fn player_shoot(
     p.cooldown.tick(time.delta());
     let fire = mouse.pressed(MouseButton::Left) || keys.pressed(KeyCode::Space);
     if fire && p.cooldown.just_finished() {
-        GameFeel::add_recoil(&mut commands, e, Vec2::NEG_Y, 6.0);
+        GameFeel::add_recoil(&mut commands, e, Vec2::NEG_Y, 6.0, 0.2);
         let origin = tf.translation + Vec3::Y * 20.0;
         let triple = powerup.as_ref().is_some_and(|p| !p.0.is_finished());
         spawn_bullet(&mut commands, origin, Vec2::Y);
