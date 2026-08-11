@@ -23,6 +23,11 @@ default = ["dev_native"]
 dev = []
 dev_native = ["dev"]
 physics = ["dep:avian2d"]
+networking-native = [
+    "dep:renet2",
+    "dep:renet2_netcode",
+    "dep:bincode",
+]
 # Big-game optional crates (check note below)
 # Keep commented until compatible to avoid breakage.
 # input_manager = ["dep:leafwing-input-manager"]
@@ -79,6 +84,7 @@ game-utils = { git = "https://github.com/mlm-games/game-utils" }
 game-utils-bevy = { git = "https://github.com/mlm-games/game-utils" }
 rand = "0.10"
 serde = { version = "1", features = ["derive"] }
+bincode = { version = "1.3", optional = true }
 avian2d = { git = "https://github.com/avianphysics/avian", optional = true, default-features = false, features = [
     "2d",
     "parry-f32",
@@ -99,6 +105,20 @@ getrandom_03 = { version = "0.3", features = [
     "wasm_js",
 ], package = "getrandom" }
 getrandom_02 = { version = "0.2", features = ["js"], package = "getrandom" }
+
+# Native networking: they would pull in Bevy 0.19 while the app uses Bevy 0.20-dev.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+renet2 = {
+    version = "0.16",
+    optional = true,
+    default-features = false,
+}
+renet2_netcode = {
+    version = "0.16",
+    optional = true,
+    default-features = false,
+    features = ["native_transport"],
+}
 
 [package.metadata.android]
 features = ["bevy/android-native-activity"]

@@ -30,8 +30,6 @@ fn t(translations: &HashMap<String, String>, key: &str, fallback: &str) -> Strin
 
 #[derive(Clone, Debug)]
 pub enum UiAction {
-    #[expect(dead_code)]
-    StartGame,
     HostLobby,
     JoinLobby,
     ToggleReady,
@@ -41,8 +39,6 @@ pub enum UiAction {
     CastVote(u64),
     SkipVote,
     PlayAgain,
-    #[expect(dead_code)]
-    SetPlayerName(String),
     CycleColor,
     OpenSettings,
     OpenCredits,
@@ -54,8 +50,6 @@ pub enum UiAction {
     SetSfxVol(f32),
     SetMusicVol(f32),
     SaveSettings,
-    #[expect(dead_code)]
-    NextLanguage,
     SetLanguage(String),
 }
 
@@ -111,22 +105,12 @@ pub fn compose_root(
             ),
         )),
         AppState::InGame => {
-            // Lights sabotage: dim the world (simple v1; replace with a
-            // radial-hole shader when you add real vision/FOW).
-            let darkness = if st.lights_out {
-                Column(
-                    Modifier::new()
-                        .fill_max_size()
-                        .background(RColor::from_rgba(0, 0, 5, 170)),
-                )
-            } else {
-                spacer(1.0)
-            };
+            // Note: `lights_out` remains in SharedUi for the HUD warning.
+            // The world vision/FOW is rendered by the radial vision mask.
             let hud = ingame_hud(&st, actions.clone());
             let meeting = meeting_overlay(&st, actions.clone());
             let gameover = gameover_overlay(&st, actions.clone());
             ZStack(Modifier::new().fill_max_size()).child((
-                darkness,
                 hud,
                 AnimatedVisibility(
                     matches!(

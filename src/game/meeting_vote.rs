@@ -2,7 +2,9 @@ use bevy::prelude::*;
 use rand::prelude::IndexedRandom;
 use std::collections::HashMap;
 
-use super::{Alive, GamePhase, Ghost, LocalPlayer, MatchConfig, Player, Role};
+use super::{
+    ActiveSabotage, Alive, GamePhase, Ghost, LocalPlayer, MatchConfig, Player, Role, make_ghost,
+};
 use crate::app::{AppState, Paused};
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::transitions::Transition;
@@ -65,32 +67,40 @@ impl MeetingState {
         living > 0 && self.votes.len() >= living
     }
 
-    pub fn resolve_votes(&mut self, phase: &mut GamePhase) {
+    pub fn resolve_votes(&mut self, phase: &mut GamePhase, results_time: f32) {
         let mut tallies: HashMap<Option<u64>, u32> = HashMap::new();
-        for v in self.votes.values() {
-            *tallies.entry(*v).or_default() += 1;
+
+        for vote in self.votes.values() {
+            *tallies.entry(*vote).or_default() += 1;
         }
-        let max = tallies.values().copied().max().unwrap_or(0);
-        let top: Vec<Option<u64>> = tallies
+
+        let maximum = tallies.values().copied().max().unwrap_or(0);
+
+        let leaders: Vec<Option<u64>> = tallies
             .iter()
-            .filter(|(_, c)| **c == max)
-            .map(|(k, _)| *k)
+            .filter(|(_, count)| **count == maximum)
+            .map(|(target, _)| *target)
             .collect();
 
         self.pending_eject = None;
-        if max == 0 || top.len() != 1 || top[0].is_none() {
+
+        if maximum == 0 || leaders.len() != 1 || leaders[0].is_none() {
             self.result_text = "No one was ejected. (Skip / Tie)".into();
-        } else if let Some(id) = top[0] {
+        } else if let Some(player_id) = leaders[0] {
+            self.pending_eject = Some(player_id);
+
             let name = self
                 .options
                 .iter()
-                .find(|o| o.player_id == id)
-                .map(|o| o.name.clone())
-                .unwrap_or_default();
+                .find(|option| option.player_id == player_id)
+                .map(|option| option.name.as_str())
+                .unwrap_or("Unknown");
+
             self.result_text = format!("{name} was ejected.");
-            self.pending_eject = Some(id);
         }
-        self.timer = Timer::from_seconds(5.0, TimerMode::Once);
+
+        self.timer = Timer::from_seconds(results_time.max(0.1), TimerMode::Once);
+
         *phase = GamePhase::Results;
     }
 }
@@ -117,9 +127,10 @@ impl Plugin for MeetingVotePlugin {
             Update,
             (
                 emergency_hotkey,
-                handle_meeting_commands,
-                apply_eject_on_results,
+                handle_meeting_commands.run_if(super::has_authority),
+                apply_eject_on_results.run_if(super::has_authority),
             )
+                .chain()
                 .run_if(in_state(AppState::InGame))
                 .run_if(|p: Res<Paused>| !p.0)
                 .run_if(|t: Res<Transition<AppState>>| !t.block_input),
@@ -142,6 +153,7 @@ fn handle_meeting_commands(
     mut phase: ResMut<GamePhase>,
     mut meeting: ResMut<MeetingState>,
     cfg: Res<MatchConfig>,
+    sabotage: Res<ActiveSabotage>,
     players: Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
     local: Query<(&Player, Option<&Alive>), With<LocalPlayer>>,
     mut trauma: ResMut<Trauma>,
@@ -150,6 +162,10 @@ fn handle_meeting_commands(
         match cmd {
             MeetingCommand::Emergency => {
                 if !matches!(*phase, GamePhase::Playing) || meeting.emergencies_left == 0 {
+                    continue;
+                }
+                // The emergency button must not bypass critical sabotage.
+                if sabotage.is_critical() {
                     continue;
                 }
                 // Only a living local player can call a meeting.
@@ -168,9 +184,19 @@ fn handle_meeting_commands(
                 if !matches!(*phase, GamePhase::Voting) || meeting.local_voted {
                     continue;
                 }
-                let Ok((lp, _)) = local.single() else {
+                let Ok((lp, alive)) = local.single() else {
                     continue;
                 };
+                if alive.is_none() {
+                    continue;
+                }
+                let target_is_alive = meeting
+                    .options
+                    .iter()
+                    .any(|option| option.player_id == *target && !option.dead);
+                if !target_is_alive {
+                    continue;
+                }
                 let local_id = lp.id;
                 meeting.votes.insert(local_id, Some(*target));
                 meeting.local_voted = true;
@@ -180,9 +206,12 @@ fn handle_meeting_commands(
                 if !matches!(*phase, GamePhase::Voting) || meeting.local_voted {
                     continue;
                 }
-                let Ok((lp, _)) = local.single() else {
+                let Ok((lp, alive)) = local.single() else {
                     continue;
                 };
+                if alive.is_none() {
+                    continue;
+                }
                 let local_id = lp.id;
                 meeting.votes.insert(local_id, None);
                 meeting.local_voted = true;
@@ -234,9 +263,7 @@ fn apply_eject_on_results(
         if p.id != eid {
             continue;
         }
-        commands.entity(e).remove::<Alive>();
-        commands.entity(e).insert(Ghost);
-        sprite.color = Color::srgba(0.7, 0.7, 0.8, 0.35);
+        make_ghost(&mut commands, e, &mut sprite);
         ScreenEffects::add_trauma(&mut trauma, 0.5);
         meeting.result_text = if matches!(role, Role::Impostor) {
             format!("{} was an Impostor.", p.name)

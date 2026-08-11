@@ -8,7 +8,7 @@ pub struct MapRoot;
 
 #[derive(Component)]
 pub struct Room {
-    #[expect(dead_code)]
+    #[allow(dead_code, reason = "Reserved for the network protocol")]
     pub name: &'static str,
 }
 

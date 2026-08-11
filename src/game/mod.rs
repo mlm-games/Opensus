@@ -1,3 +1,5 @@
+mod authority;
+mod interaction;
 mod kill_sabotage;
 mod lobby;
 mod map;
@@ -8,7 +10,10 @@ mod player;
 mod roles;
 mod sabotage;
 mod tasks;
+mod vision;
 
+pub use authority::*;
+pub use interaction::*;
 pub use kill_sabotage::*;
 pub use lobby::*;
 pub use map::*;
@@ -19,6 +24,7 @@ pub use player::*;
 pub use roles::*;
 pub use sabotage::*;
 pub use tasks::*;
+pub use vision::*;
 
 use bevy::prelude::*;
 
@@ -29,36 +35,45 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<GamePhase>()
+        app.init_resource::<RuntimeMode>()
+            .init_resource::<GamePhase>()
             .init_resource::<MatchConfig>()
             .init_resource::<LobbyState>()
             .init_resource::<TaskBoard>()
             .init_resource::<KillCooldown>()
             .init_resource::<LocalRole>()
+            .init_resource::<LocalPlayerId>()
             .init_resource::<MeetingState>()
             .add_message::<StartMatchRequest>()
             .add_message::<MeetingCommand>()
             .add_message::<KillRequest>()
             .add_message::<ReportBody>()
-            .add_message::<TaskInteract>()
             .add_plugins((
                 LobbyPlugin,
                 PlayerPlugin,
                 MapPlugin,
                 TasksPlugin,
+                InteractionPlugin,
                 KillSabotagePlugin,
                 MeetingVotePlugin,
                 SabotagePlugin,
+                VisionPlugin,
                 NetworkingPlugin,
             ))
             .add_systems(OnEnter(AppState::InGame), setup_match)
             .add_systems(OnExit(AppState::InGame), cleanup_match)
             .add_systems(
                 Update,
-                (tick_phase_timers, check_win_conditions)
+                (
+                    cleanup_bodies_on_meeting,
+                    tick_phase_timers,
+                    check_win_conditions,
+                )
+                    .chain()
                     .run_if(in_state(AppState::InGame))
-                    .run_if(|p: Res<Paused>| !p.0)
-                    .run_if(|t: Res<Transition<AppState>>| !t.block_input),
+                    .run_if(|paused: Res<Paused>| !paused.0)
+                    .run_if(|transition: Res<Transition<AppState>>| !transition.block_input)
+                    .run_if(has_authority),
             );
     }
 }
@@ -89,6 +104,26 @@ fn cleanup_match(mut commands: Commands, q: Query<Entity, With<MatchCleanup>>) {
     }
 }
 
+fn cleanup_bodies_on_meeting(
+    phase: Res<GamePhase>,
+    mut previous: Local<Option<GamePhase>>,
+    mut commands: Commands,
+    bodies: Query<Entity, With<Body>>,
+) {
+    let entered_meeting =
+        matches!(*phase, GamePhase::Meeting) && !matches!(*previous, Some(GamePhase::Meeting));
+
+    *previous = Some(*phase);
+
+    if !entered_meeting {
+        return;
+    }
+
+    for entity in &bodies {
+        commands.entity(entity).despawn();
+    }
+}
+
 fn tick_phase_timers(
     time: Res<Time>,
     mut phase: ResMut<GamePhase>,
@@ -107,7 +142,7 @@ fn tick_phase_timers(
         GamePhase::Voting => {
             meeting.timer.tick(time.delta());
             if meeting.timer.just_finished() || meeting.all_voted() {
-                meeting.resolve_votes(&mut phase);
+                meeting.resolve_votes(&mut phase, cfg.results_time);
             }
         }
         GamePhase::Results => {

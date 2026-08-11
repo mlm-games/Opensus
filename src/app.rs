@@ -417,7 +417,7 @@ fn process_ui_actions(
     };
     for action in q.drain(..) {
         match action {
-            UiAction::StartGame | UiAction::HostLobby => {
+            UiAction::HostLobby => {
                 transition.begin_to_state(AppState::Loading);
             }
             UiAction::JoinLobby => {
@@ -452,14 +452,6 @@ fn process_ui_actions(
                     **gp = GamePhase::None;
                 }
                 transition.begin_to_state(AppState::Lobby);
-            }
-            UiAction::SetPlayerName(name) => {
-                save.player_name = name.chars().take(16).collect();
-                if let Some(ref mut lobby) = lobby
-                    && let Some(slot) = lobby.slots.iter_mut().find(|s| s.is_local)
-                {
-                    slot.name = save.player_name.clone();
-                }
             }
             UiAction::CycleColor => {
                 save.preferred_color_index =
@@ -528,15 +520,6 @@ fn process_ui_actions(
                     *overlay = OverlayMenu::Pause;
                 } else {
                     *overlay = OverlayMenu::None;
-                }
-            }
-            UiAction::NextLanguage => {
-                let available = locale.available.clone();
-                let current = locale.current.clone();
-                let idx = available.iter().position(|l| *l == current).unwrap_or(0);
-                let next = (idx + 1) % available.len();
-                if let Some(next_locale) = available.get(next) {
-                    locale.set_locale(next_locale);
                 }
             }
             UiAction::SetLanguage(ref lang) => {

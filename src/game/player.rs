@@ -13,13 +13,22 @@ use game_utils_bevy::transitions::Transition;
 pub struct Player {
     pub id: u64,
     pub name: String,
-    #[expect(dead_code)]
+    #[allow(dead_code, reason = "Reserved for the network protocol")]
     pub color_index: u8,
     pub speed: f32,
 }
 
 #[derive(Component)]
 pub struct LocalPlayer;
+
+#[derive(Resource, Default, Clone, Copy, Debug)]
+pub struct LocalPlayerId(pub Option<u64>);
+
+#[derive(Component, Default, Clone, Copy, Debug)]
+pub struct PlayerIntent {
+    pub movement: Vec2,
+    pub interact: bool,
+}
 
 #[derive(Component)]
 pub struct AiPlayer {
@@ -41,7 +50,12 @@ impl Plugin for PlayerPlugin {
             )
             .add_systems(
                 Update,
-                (local_movement, ai_movement, camera_follow)
+                (
+                    local_movement,
+                    ai_movement.run_if(super::has_authority),
+                    camera_follow,
+                )
+                    .chain()
                     .run_if(in_state(AppState::InGame))
                     .run_if(|p: Res<Paused>| !p.0)
                     .run_if(|t: Res<Transition<AppState>>| !t.block_input)
@@ -56,7 +70,11 @@ fn spawn_players_from_lobby(
     cfg: Res<MatchConfig>,
     save: Res<SaveData>,
     mut local_role: ResMut<LocalRole>,
+    mut local_player_id: ResMut<LocalPlayerId>,
 ) {
+    local_player_id.0 = None;
+    local_role.0 = None;
+
     let mut slots: Vec<_> = lobby.slots.to_vec();
     if slots.is_empty() {
         slots.push(super::lobby::LobbySlot {
@@ -112,6 +130,7 @@ fn spawn_players_from_lobby(
         };
         if slot.is_local {
             local_role.0 = Some(role);
+            local_player_id.0 = Some(slot.id);
         }
         let color = PLAYER_COLORS[slot.color_index as usize % PLAYER_COLORS.len()];
         let pos = start_positions[i % start_positions.len()];
@@ -125,6 +144,7 @@ fn spawn_players_from_lobby(
             },
             role,
             Alive,
+            PlayerIntent::default(),
             Sprite {
                 color,
                 custom_size: Some(Vec2::splat(28.0)),
@@ -145,33 +165,51 @@ fn spawn_players_from_lobby(
     }
 }
 
+fn input_direction(keys: &ButtonInput<KeyCode>) -> Vec2 {
+    let mut direction = Vec2::ZERO;
+
+    if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
+        direction.y += 1.0;
+    }
+    if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
+        direction.y -= 1.0;
+    }
+    if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
+        direction.x -= 1.0;
+    }
+    if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
+        direction.x += 1.0;
+    }
+
+    direction.normalize_or_zero()
+}
+
 fn local_movement(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
-    mut q: Query<(&Player, &mut Transform), (With<LocalPlayer>, With<Alive>)>,
+    phase: Res<GamePhase>,
+    mut query: Query<
+        (&Player, &mut PlayerIntent, &mut Transform),
+        (With<LocalPlayer>, With<Alive>),
+    >,
 ) {
-    let Ok((p, mut tf)) = q.single_mut() else {
+    let Ok((player, mut intent, mut transform)) = query.single_mut() else {
         return;
     };
-    let mut d = Vec2::ZERO;
-    if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
-        d.y += 1.0;
+
+    if !matches!(*phase, GamePhase::Playing) {
+        intent.movement = Vec2::ZERO;
+        intent.interact = false;
+        return;
     }
-    if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
-        d.y -= 1.0;
-    }
-    if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
-        d.x -= 1.0;
-    }
-    if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
-        d.x += 1.0;
-    }
-    if d != Vec2::ZERO {
-        tf.translation += (d.normalize() * p.speed * time.delta_secs()).extend(0.0);
-        // soft map bounds (map plugin can refine)
-        tf.translation.x = tf.translation.x.clamp(-520.0, 520.0);
-        tf.translation.y = tf.translation.y.clamp(-300.0, 300.0);
-    }
+
+    intent.movement = input_direction(&keys);
+    intent.interact = keys.pressed(KeyCode::KeyE);
+
+    transform.translation += (intent.movement * player.speed * time.delta_secs()).extend(0.0);
+
+    transform.translation.x = transform.translation.x.clamp(-520.0, 520.0);
+    transform.translation.y = transform.translation.y.clamp(-300.0, 300.0);
 }
 
 fn ai_movement(
@@ -193,19 +231,27 @@ fn ai_movement(
 }
 
 fn camera_follow(
+    time: Res<Time>,
+    config: Res<MatchConfig>,
     mut camera: Query<&mut CameraBase, With<Camera2d>>,
     local: Query<&Transform, (With<LocalPlayer>, Without<Camera2d>)>,
 ) {
     let Ok(mut base) = camera.single_mut() else {
         return;
     };
-    let Ok(tf) = local.single() else { return };
+    let Ok(player) = local.single() else {
+        return;
+    };
+
     let target = Vec3::new(
-        tf.translation.x.clamp(-320.0, 320.0),
-        tf.translation.y.clamp(-160.0, 160.0),
+        player.translation.x.clamp(-320.0, 320.0),
+        player.translation.y.clamp(-160.0, 160.0),
         1000.0,
     );
-    base.translation = base.translation.lerp(target, 0.12);
+
+    let alpha = 1.0 - (-config.camera_follow_sharpness * time.delta_secs()).exp();
+
+    base.translation = base.translation.lerp(target, alpha);
 }
 
 pub const PLAYER_COLORS: [Color; 12] = [

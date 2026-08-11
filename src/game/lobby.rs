@@ -3,6 +3,8 @@ use bevy::prelude::*;
 use crate::app::AppState;
 use crate::save::SaveData;
 
+use super::MatchConfig;
+
 #[derive(Clone, Debug)]
 pub struct LobbySlot {
     pub id: u64,
@@ -32,7 +34,7 @@ impl Plugin for LobbyPlugin {
     }
 }
 
-fn setup_lobby(mut lobby: ResMut<LobbyState>, save: Res<SaveData>) {
+fn setup_lobby(mut lobby: ResMut<LobbyState>, save: Res<SaveData>, cfg: Res<MatchConfig>) {
     lobby.is_host = true;
     lobby.local_ready = false;
     lobby.slots.clear();
@@ -44,8 +46,9 @@ fn setup_lobby(mut lobby: ResMut<LobbyState>, save: Res<SaveData>) {
         is_local: true,
         is_host: true,
     });
-    // sandbox bots
-    for i in 0..3u64 {
+    // sandbox bots, capped to lobby capacity
+    let max_bots = cfg.max_players.saturating_sub(1) as u64;
+    for i in 0..max_bots.min(3) {
         lobby.slots.push(LobbySlot {
             id: 10 + i,
             name: format!("Agent-{}", i + 2),

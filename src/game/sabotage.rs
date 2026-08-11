@@ -1,12 +1,13 @@
 use bevy::prelude::*;
 
-use super::{Alive, GamePhase, LocalPlayer, LocalRole, MatchCleanup, Role};
+use super::{Alive, GamePhase, LocalPlayer, MatchCleanup, MatchConfig, Player, Role};
 use crate::app::{AppState, Paused};
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::transitions::Transition;
 use game_utils_bevy::vfx::VfxSpawner;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum SabotageKind {
     Lights,
     Oxygen,
@@ -25,21 +26,36 @@ impl ActiveSabotage {
     pub fn is_active(&self) -> bool {
         self.kind.is_some()
     }
+
+    pub fn is_critical(&self) -> bool {
+        matches!(
+            self.kind,
+            Some(SabotageKind::Oxygen | SabotageKind::Reactor)
+        )
+    }
+
     pub fn critical_remaining(&self) -> f32 {
         self.timer
             .as_ref()
-            .map(|t| t.remaining_secs())
+            .map(Timer::remaining_secs)
             .unwrap_or(0.0)
     }
-    pub fn fixed(&self) -> bool {
+
+    pub fn is_fixed(&self) -> bool {
         self.fixes_needed > 0 && self.fixes_done >= self.fixes_needed
     }
+
     pub fn clear(&mut self) {
         self.kind = None;
         self.timer = None;
         self.fixes_needed = 0;
         self.fixes_done = 0;
     }
+}
+
+#[derive(Resource, Default)]
+pub struct SabotageCooldown {
+    pub remaining: f32,
 }
 
 #[derive(Component)]
@@ -49,37 +65,44 @@ pub struct SabotageFixStation {
 }
 
 #[derive(Message, Clone, Copy)]
-pub enum SabotageAction {
-    Lights,
-    Oxygen,
-    Reactor,
+pub struct SabotageAction {
+    pub actor_id: u64,
+    pub kind: SabotageKind,
 }
 
 pub struct SabotagePlugin;
 
 impl Plugin for SabotagePlugin {
     fn build(&self, app: &mut App) {
-        // Registered here ONLY — do not also add_message in game/mod.rs.
         app.init_resource::<ActiveSabotage>()
+            .init_resource::<SabotageCooldown>()
             .add_message::<SabotageAction>()
-            .add_systems(OnEnter(AppState::InGame), spawn_fix_stations)
+            .add_systems(
+                OnEnter(AppState::InGame),
+                (reset_sabotage, spawn_fix_stations).chain(),
+            )
+            .add_systems(OnExit(AppState::InGame), reset_sabotage)
             .add_systems(
                 Update,
                 (
                     sabotage_input,
                     apply_sabotage,
                     tick_sabotage,
-                    fix_station_interact,
                     check_sabotage_loss,
-                    clear_sabotage_when_fixed,
+                    clear_fixed_sabotage,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame))
-                    .run_if(|p: Res<Paused>| !p.0)
-                    .run_if(|t: Res<Transition<AppState>>| !t.block_input)
-                    .run_if(|ph: Res<GamePhase>| matches!(*ph, GamePhase::Playing)),
+                    .run_if(|paused: Res<Paused>| !paused.0)
+                    .run_if(|transition: Res<Transition<AppState>>| !transition.block_input)
+                    .run_if(super::has_authority),
             );
     }
+}
+
+fn reset_sabotage(mut sabotage: ResMut<ActiveSabotage>, mut cooldown: ResMut<SabotageCooldown>) {
+    sabotage.clear();
+    cooldown.remaining = 0.0;
 }
 
 fn spawn_fix_stations(mut commands: Commands) {
@@ -90,7 +113,8 @@ fn spawn_fix_stations(mut commands: Commands) {
         (Vec2::new(200.0, -80.0), SabotageKind::Reactor),
         (Vec2::new(0.0, 140.0), SabotageKind::Lights),
     ];
-    for (pos, kind) in stations {
+
+    for (position, kind) in stations {
         commands.spawn((
             MatchCleanup,
             SabotageFixStation {
@@ -98,76 +122,115 @@ fn spawn_fix_stations(mut commands: Commands) {
                 progress: 0.0,
             },
             Sprite {
-                color: Color::srgba(0.3, 0.3, 0.9, 0.0), // invisible until active
+                color: Color::srgba(0.3, 0.3, 0.9, 0.0),
                 custom_size: Some(Vec2::splat(18.0)),
                 ..default()
             },
-            Transform::from_xyz(pos.x, pos.y, 5.0),
+            Transform::from_xyz(position.x, position.y, 5.0),
         ));
     }
 }
 
 fn sabotage_input(
     keys: Res<ButtonInput<KeyCode>>,
-    sab: Res<ActiveSabotage>,
-    local_role: Res<LocalRole>,
-    mut ev: MessageWriter<SabotageAction>,
+    phase: Res<GamePhase>,
+    sabotage: Res<ActiveSabotage>,
+    cooldown: Res<SabotageCooldown>,
+    local: Query<(&Player, &Role), (With<LocalPlayer>, With<Alive>)>,
+    mut actions: MessageWriter<SabotageAction>,
 ) {
-    if sab.is_active() || !matches!(local_role.0, Some(Role::Impostor)) {
+    if !matches!(*phase, GamePhase::Playing) || sabotage.is_active() || cooldown.remaining > 0.0 {
         return;
     }
-    if keys.just_pressed(KeyCode::Digit1) {
-        ev.write(SabotageAction::Lights);
+
+    let Ok((player, role)) = local.single() else {
+        return;
+    };
+
+    if !matches!(role, Role::Impostor) {
+        return;
     }
-    if keys.just_pressed(KeyCode::Digit2) {
-        ev.write(SabotageAction::Oxygen);
-    }
-    if keys.just_pressed(KeyCode::Digit3) {
-        ev.write(SabotageAction::Reactor);
+
+    let kind = if keys.just_pressed(KeyCode::Digit1) {
+        Some(SabotageKind::Lights)
+    } else if keys.just_pressed(KeyCode::Digit2) {
+        Some(SabotageKind::Oxygen)
+    } else if keys.just_pressed(KeyCode::Digit3) {
+        Some(SabotageKind::Reactor)
+    } else {
+        None
+    };
+
+    if let Some(kind) = kind {
+        actions.write(SabotageAction {
+            actor_id: player.id,
+            kind,
+        });
     }
 }
 
 fn apply_sabotage(
-    mut ev: MessageReader<SabotageAction>,
-    mut sab: ResMut<ActiveSabotage>,
+    mut actions: MessageReader<SabotageAction>,
+    config: Res<MatchConfig>,
+    mut sabotage: ResMut<ActiveSabotage>,
+    mut cooldown: ResMut<SabotageCooldown>,
+    actors: Query<(&Player, &Role), With<Alive>>,
+    mut stations: Query<(&mut Sprite, &mut SabotageFixStation)>,
     mut trauma: ResMut<Trauma>,
     mut commands: Commands,
-    local: Query<&Transform, With<LocalPlayer>>,
-    mut stations: Query<(&mut Sprite, &mut SabotageFixStation)>,
+    transforms: Query<(&Player, &Transform)>,
 ) {
-    for action in ev.read() {
-        if sab.is_active() {
+    for action in actions.read() {
+        if sabotage.is_active() || cooldown.remaining > 0.0 {
             continue;
         }
-        let (kind, timer, needs) = match action {
-            SabotageAction::Lights => (SabotageKind::Lights, None, 1u8),
-            SabotageAction::Oxygen => (
-                SabotageKind::Oxygen,
-                Some(Timer::from_seconds(30.0, TimerMode::Once)),
+
+        let valid_actor = actors
+            .iter()
+            .any(|(player, role)| player.id == action.actor_id && matches!(role, Role::Impostor));
+
+        if !valid_actor {
+            continue;
+        }
+
+        let (timer, fixes_needed) = match action.kind {
+            SabotageKind::Lights => (None, 1),
+            SabotageKind::Oxygen => (
+                Some(Timer::from_seconds(config.oxygen_time, TimerMode::Once)),
                 2,
             ),
-            SabotageAction::Reactor => (
-                SabotageKind::Reactor,
-                Some(Timer::from_seconds(45.0, TimerMode::Once)),
+            SabotageKind::Reactor => (
+                Some(Timer::from_seconds(config.reactor_time, TimerMode::Once)),
                 2,
             ),
         };
-        sab.kind = Some(kind);
-        sab.timer = timer;
-        sab.fixes_needed = needs;
-        sab.fixes_done = 0;
 
-        for (mut sprite, mut st) in &mut stations {
-            if st.kind == kind {
-                st.progress = 0.0;
-                sprite.color = Color::srgb(0.9, 0.5, 0.1);
-            }
+        sabotage.kind = Some(action.kind);
+        sabotage.timer = timer;
+        sabotage.fixes_needed = fixes_needed;
+        sabotage.fixes_done = 0;
+
+        cooldown.remaining = config.sabotage_cooldown;
+
+        for (mut sprite, mut station) in &mut stations {
+            station.progress = 0.0;
+
+            sprite.color = if station.kind == action.kind {
+                Color::srgb(0.9, 0.5, 0.1)
+            } else {
+                Color::srgba(0.3, 0.3, 0.9, 0.0)
+            };
         }
+
         ScreenEffects::add_trauma(&mut trauma, 0.6);
-        if let Ok(tf) = local.single() {
+
+        if let Some((_, transform)) = transforms
+            .iter()
+            .find(|(player, _)| player.id == action.actor_id)
+        {
             VfxSpawner::spawn_burst(
                 &mut commands,
-                tf.translation.truncate(),
+                transform.translation.truncate(),
                 8,
                 Color::srgb(0.8, 0.3, 0.1),
                 (40.0, 90.0),
@@ -176,76 +239,64 @@ fn apply_sabotage(
     }
 }
 
-fn tick_sabotage(time: Res<Time>, mut sab: ResMut<ActiveSabotage>) {
-    if let Some(ref mut t) = sab.timer {
-        t.tick(time.delta());
-    }
-}
-
-// FIXED: single ResMut — the previous draft's Res + ResMut of the same
-// resource in one system is a guaranteed B0002 panic at startup.
-fn fix_station_interact(
+fn tick_sabotage(
     time: Res<Time>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mut sab: ResMut<ActiveSabotage>,
-    local: Query<&Transform, (With<LocalPlayer>, With<Alive>)>,
-    mut stations: Query<(&mut SabotageFixStation, &mut Sprite, &Transform)>,
+    phase: Res<GamePhase>,
+    mut sabotage: ResMut<ActiveSabotage>,
+    mut cooldown: ResMut<SabotageCooldown>,
 ) {
-    let Some(active_kind) = sab.kind else { return };
-    if sab.fixes_needed == 0 || !keys.pressed(KeyCode::KeyE) {
+    cooldown.remaining = (cooldown.remaining - time.delta_secs()).max(0.0);
+
+    if !matches!(*phase, GamePhase::Playing) {
         return;
     }
-    let Ok(pt) = local.single() else { return };
-    let ppos = pt.translation.truncate();
 
-    for (mut st, mut sprite, tf) in &mut stations {
-        if st.kind != active_kind || st.progress >= 1.0 {
-            continue;
-        }
-        if ppos.distance(tf.translation.truncate()) > 38.0 {
-            continue;
-        }
-        st.progress += time.delta_secs() / 2.5;
-        if st.progress >= 1.0 {
-            st.progress = 1.0;
-            sprite.color = Color::srgb(0.2, 0.7, 0.3);
-            sab.fixes_done += 1;
-        }
-        break;
+    if let Some(timer) = sabotage.timer.as_mut() {
+        timer.tick(time.delta());
     }
 }
 
 fn check_sabotage_loss(
-    sab: Res<ActiveSabotage>,
+    sabotage: Res<ActiveSabotage>,
     mut phase: ResMut<GamePhase>,
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
 ) {
-    let Some(kind) = sab.kind else { return };
-    if !matches!(kind, SabotageKind::Oxygen | SabotageKind::Reactor) {
+    if matches!(*phase, GamePhase::GameOver { .. }) {
         return;
     }
-    if let Some(ref timer) = sab.timer
-        && timer.just_finished()
-        && sab.fixes_done < sab.fixes_needed
-    {
-        *phase = GamePhase::GameOver { crew_win: false };
-        save.games_played += 1;
-        save.impostor_wins += 1;
-        let _ = manager.save(&*save);
+
+    if !sabotage.is_critical() || sabotage.is_fixed() {
+        return;
+    }
+
+    let expired = sabotage.timer.as_ref().is_some_and(Timer::just_finished);
+
+    if !expired {
+        return;
+    }
+
+    *phase = GamePhase::GameOver { crew_win: false };
+    save.games_played = save.games_played.saturating_add(1);
+    save.impostor_wins = save.impostor_wins.saturating_add(1);
+
+    if let Err(error) = manager.save(&*save) {
+        warn!("Unable to save sabotage result: {error}");
     }
 }
 
-fn clear_sabotage_when_fixed(
-    mut sab: ResMut<ActiveSabotage>,
+fn clear_fixed_sabotage(
+    mut sabotage: ResMut<ActiveSabotage>,
     mut stations: Query<(&mut SabotageFixStation, &mut Sprite)>,
 ) {
-    if !sab.fixed() {
+    if !sabotage.is_fixed() {
         return;
     }
-    sab.clear();
-    for (mut st, mut sprite) in &mut stations {
-        st.progress = 0.0;
+
+    sabotage.clear();
+
+    for (mut station, mut sprite) in &mut stations {
+        station.progress = 0.0;
         sprite.color = Color::srgba(0.3, 0.3, 0.9, 0.0);
     }
 }
