@@ -11,9 +11,9 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            bg: Color::srgb(0.03, 0.03, 0.05),
-            accent: Color::srgb(0.25, 0.5, 0.85),
-            danger: Color::srgb(0.75, 0.25, 0.25),
+            bg: Color::srgb(0.06, 0.09, 0.12),
+            accent: Color::srgb(0.55, 0.18, 0.18), // spy red
+            danger: Color::srgb(0.85, 0.2, 0.15),
             text: Color::WHITE,
         }
     }

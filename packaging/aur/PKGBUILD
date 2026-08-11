@@ -1,14 +1,14 @@
 # Maintainer: mlm-games
-pkgname=my-ecosystem-bevy
+pkgname=opensus
 pkgver=0.1.0
 pkgrel=1
-pkgdesc="Clone of my Godot template for bevy"
+pkgdesc="OpenSuspect-inspired social deduction game (Bevy)"
 arch=('x86_64')
-url="https://github.com/mlm-games/my-ecosystem-bevy"
+url="https://github.com/mlm-games/opensus"
 license=('GPL3')
 depends=('alsa-lib' 'libx11' 'libxcb' 'wayland')
 makedepends=('cargo')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/mlm-games/my-ecosystem-bevy/archive/v$pkgver.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com/mlm-games/opensus/archive/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
 build() {
@@ -16,5 +16,5 @@ build() {
 }
 
 package() {
-    install -Dm755 target/release/$pkgname "$pkgdir/usr/bin/$pkgname"
+    install -Dm755 target/release/opensus-desktop "$pkgdir/usr/bin/opensus"
 }

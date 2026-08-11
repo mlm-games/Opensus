@@ -1,7 +1,7 @@
 mod app;
 mod asset_tracking;
-mod demo;
 mod dev_tools;
+mod game;
 mod menus;
 mod save;
 mod screens;
@@ -17,7 +17,7 @@ use wasm_bindgen::prelude::*;
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub fn run() {
     let primary_window = Window {
-        title: "My Ecosystem Bevy".into(),
+        title: "Opensus".into(),
         resolution: WindowResolution::new(1280, 720),
         #[cfg(target_arch = "wasm32")]
         fit_canvas_to_parent: true,

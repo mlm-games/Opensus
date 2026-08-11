@@ -1,18 +1,18 @@
-name: my-ecosystem-bevy
+name: opensus
 version: '0.1.0'
-summary: Clone of my Godot template for bevy
+summary: OpenSuspect-inspired social deduction game (Bevy)
 description: |
-  A complete Bevy 2D game template with ecosystem plugins,
-  game feel, transitions, audio, save system, and more.
+  OpenSuspect-inspired social deduction game. Migrated from the
+  Godot Opensus project onto my-ecosystem-template-bevy.
 grade: stable
 confinement: strict
 
 apps:
-  my-ecosystem-bevy:
-    command: my-ecosystem-bevy
+  opensus:
+    command: opensus-desktop
     plugs: [x11, wayland, audio, joystick]
 
 parts:
-  my-ecosystem-bevy:
+  opensus:
     plugin: rust
     source: .

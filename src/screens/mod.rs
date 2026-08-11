@@ -54,6 +54,7 @@ fn tick_loading(
         })
         .unwrap_or(true);
     if loaded && timer.0.tick(time.delta()).just_finished() {
-        tr.begin_to_state(AppState::InGame);
+        // Opensus: enter lobby after load (not straight InGame)
+        tr.begin_to_state(AppState::Lobby);
     }
 }

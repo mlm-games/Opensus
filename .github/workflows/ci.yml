@@ -23,4 +23,4 @@ jobs:
         --features physics
       include-android: true
       upload-artifacts: true
-      app-slug: my-ecosystem-bevy
+      app-slug: opensus

@@ -1,14 +1,14 @@
-id: com.mlm-games.my-ecosystem-bevy
+id: com.mlm-games.opensus
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
-command: my-ecosystem-bevy
+command: opensus-desktop
 modules:
-  - name: my-ecosystem-bevy
+  - name: opensus-desktop
     buildsystem: simple
     build-commands:
       - cargo build --release
-      - install -Dm755 target/release/my-ecosystem-bevy /app/bin/my-ecosystem-bevy
+      - install -Dm755 target/release/opensus-desktop /app/bin/opensus-desktop
     sources:
       - type: dir
         path: .

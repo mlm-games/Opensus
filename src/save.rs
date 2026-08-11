@@ -8,8 +8,12 @@ pub const SAVE_VERSION: u32 = 1;
 pub struct SaveData {
     #[serde(default)]
     pub version: u32,
-    pub high_score: u32,
     pub settings: SettingsData,
+    pub player_name: String,
+    pub preferred_color_index: u8,
+    pub games_played: u32,
+    pub crew_wins: u32,
+    pub impostor_wins: u32,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -35,8 +39,12 @@ impl Default for SaveData {
     fn default() -> Self {
         Self {
             version: SAVE_VERSION,
-            high_score: 0,
             settings: SettingsData::default(),
+            player_name: "Agent".to_string(),
+            preferred_color_index: 0,
+            games_played: 0,
+            crew_wins: 0,
+            impostor_wins: 0,
         }
     }
 }

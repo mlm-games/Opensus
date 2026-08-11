@@ -7,8 +7,8 @@ use repose_core::{prelude::Modifier, remember};
 use repose_ui::overlay::OverlayHandle;
 
 use crate::asset_tracking::AssetsLoading;
-use crate::demo::DemoPlugin;
 use crate::dev_tools::DevToolsPlugin;
+use crate::game::{GamePhase, GamePlugin, LobbySlot, MatchConfig, Role};
 use crate::menus::{self, UiAction, UiBridge};
 use crate::save::SaveData;
 use crate::screens::ScreensPlugin;
@@ -26,6 +26,12 @@ use game_utils_bevy::{
 const TRANSLATION_KEYS: &[&str] = &[
     "app-title",
     "start-game",
+    "host-game",
+    "join-game",
+    "ready",
+    "unready",
+    "start-match",
+    "leave-lobby",
     "settings",
     "credits",
     "quit",
@@ -38,10 +44,33 @@ const TRANSLATION_KEYS: &[&str] = &[
     "sfx-volume",
     "music-volume",
     "language",
-    "score",
-    "best",
-    "controls-hint",
     "loading",
+    "crewmate",
+    "impostor",
+    "alive",
+    "dead",
+    "ghost",
+    "tasks-remaining",
+    "kill",
+    "report",
+    "sabotage",
+    "emergency-meeting",
+    "discussion",
+    "voting",
+    "vote",
+    "skip",
+    "ejected",
+    "skip-result",
+    "crewmates-win",
+    "impostors-win",
+    "play-again",
+    "controls-hint",
+    "you-are",
+    "kill-cooldown",
+    "lobby-waiting",
+    "players",
+    "color",
+    "name",
 ];
 
 const LOCALES: &[(&str, &str)] = &[
@@ -60,6 +89,7 @@ pub enum AppState {
     Splash,
     Loading,
     Title,
+    Lobby,
     InGame,
 }
 
@@ -78,6 +108,7 @@ pub enum OverlayMenu {
 #[derive(Resource, Default)]
 pub struct PendingUnpause(pub Option<Timer>);
 
+/// Snapshot for Repose (clone every frame).
 #[derive(Resource, Clone)]
 pub struct SharedUi {
     pub phase: AppState,
@@ -87,14 +118,28 @@ pub struct SharedUi {
     pub master_vol: f32,
     pub sfx_vol: f32,
     pub music_vol: f32,
-    pub high_score: u32,
-    pub score: u32,
     pub transition_alpha: f32,
     pub flash_alpha: f32,
     pub language: String,
     pub saved_language: String,
     pub available_languages: Vec<String>,
     pub translations: HashMap<String, String>,
+    // Opensus
+    pub game_phase: GamePhase,
+    pub lobby_slots: Vec<LobbySlot>,
+    pub local_ready: bool,
+    pub is_host: bool,
+    pub my_role: Option<Role>,
+    pub tasks_done: u32,
+    pub tasks_total: u32,
+    pub kill_cd: f32,
+    pub phase_timer: f32,
+    pub meeting_prompt: String,
+    pub vote_options: Vec<(u64, String, bool)>, // id, name, dead
+    pub my_voted: bool,
+    pub result_text: String,
+    pub player_name: String,
+    pub color_index: u8,
 }
 
 impl Default for SharedUi {
@@ -107,14 +152,27 @@ impl Default for SharedUi {
             master_vol: 1.0,
             sfx_vol: 1.0,
             music_vol: 0.8,
-            high_score: 0,
-            score: 0,
             transition_alpha: 0.0,
             flash_alpha: 0.0,
             language: "en".to_string(),
             saved_language: "en".to_string(),
             available_languages: vec!["en".to_string()],
             translations: HashMap::new(),
+            game_phase: GamePhase::None,
+            lobby_slots: Vec::new(),
+            local_ready: false,
+            is_host: true,
+            my_role: None,
+            tasks_done: 0,
+            tasks_total: 0,
+            kill_cd: 0.0,
+            phase_timer: 0.0,
+            meeting_prompt: String::new(),
+            vote_options: Vec::new(),
+            my_voted: false,
+            result_text: String::new(),
+            player_name: "Agent".to_string(),
+            color_index: 0,
         }
     }
 }
@@ -158,12 +216,12 @@ impl Plugin for AppPlugin {
                 SavePlugin::<SaveData>::new(SaveManager::new(
                     "com",
                     "mlm-games",
-                    "my-ecosystem-bevy",
+                    "opensus",
                     "save.ron",
                     1,
                 )),
                 ScreensPlugin,
-                DemoPlugin,
+                GamePlugin,
                 DevToolsPlugin,
             ))
             .add_systems(Startup, setup_camera)
@@ -172,6 +230,7 @@ impl Plugin for AppPlugin {
                 (
                     apply_saved_settings,
                     sync_shared_ui,
+                    sync_shared_game,
                     sync_post_process_settings::<AppState>,
                     process_ui_actions,
                     handle_pause_input,
@@ -214,7 +273,6 @@ fn sync_shared_ui(
     overlay: Res<OverlayMenu>,
     bridge: Res<UiBridge>,
     save: Res<SaveData>,
-    score: Option<Res<crate::demo::Score>>,
     transition: Res<Transition<AppState>>,
     flash: Res<game_utils_bevy::screen_effects::FlashWhite>,
     locale: Res<LocaleResources>,
@@ -228,8 +286,8 @@ fn sync_shared_ui(
     ui.phase = state.get().clone();
     ui.paused = paused.0;
     ui.overlay = *overlay;
-    ui.high_score = save.high_score;
-    ui.score = score.map(|s| s.0).unwrap_or(0);
+    ui.player_name = save.player_name.clone();
+    ui.color_index = save.preferred_color_index;
     if *overlay != OverlayMenu::Settings {
         ui.master_vol = save.settings.master_volume;
         ui.sfx_vol = save.settings.sfx_volume;
@@ -252,6 +310,52 @@ fn sync_shared_ui(
     channels.master = save.settings.master_volume;
     channels.sfx = save.settings.sfx_volume;
     channels.music = save.settings.music_volume;
+}
+
+fn sync_shared_game(
+    bridge: Res<UiBridge>,
+    game_phase: Option<Res<GamePhase>>,
+    lobby: Option<Res<crate::game::LobbyState>>,
+    match_cfg: Option<Res<MatchConfig>>,
+    tasks: Option<Res<crate::game::TaskBoard>>,
+    kill_cd: Option<Res<crate::game::KillCooldown>>,
+    meeting: Option<Res<crate::game::MeetingState>>,
+    local_role: Option<Res<crate::game::LocalRole>>,
+) {
+    let Ok(mut ui) = bridge.shared.lock() else {
+        return;
+    };
+    ui.game_phase = game_phase.map(|g| *g).unwrap_or(GamePhase::None);
+    if let Some(lobby) = lobby {
+        ui.lobby_slots = lobby.slots.clone();
+        ui.local_ready = lobby.local_ready;
+        ui.is_host = lobby.is_host;
+    }
+    if let Some(tb) = tasks {
+        ui.tasks_done = tb.completed;
+        ui.tasks_total = tb.total;
+    } else if let Some(cfg) = match_cfg {
+        ui.tasks_total = cfg.tasks_to_win;
+    }
+    ui.kill_cd = kill_cd.map(|k| k.remaining).unwrap_or(0.0);
+    ui.my_role = local_role.and_then(|r| r.0);
+    if let Some(m) = meeting {
+        ui.phase_timer = m.timer.remaining_secs().max(0.0);
+        ui.meeting_prompt = m.prompt.clone();
+        ui.vote_options = m
+            .options
+            .iter()
+            .map(|o| (o.player_id, o.name.clone(), o.dead))
+            .collect();
+        ui.my_voted = m.local_voted;
+        ui.result_text = m.result_text.clone();
+    } else {
+        ui.phase_timer = 0.0;
+        ui.meeting_prompt.clear();
+        ui.vote_options.clear();
+        ui.my_voted = false;
+        ui.result_text.clear();
+    }
 }
 
 fn tick_pending_unpause(
@@ -287,14 +391,68 @@ fn process_ui_actions(
     mut virtual_time: ResMut<Time<Virtual>>,
     mut pending_unpause: ResMut<PendingUnpause>,
     mut locale: ResMut<LocaleResources>,
+    mut lobby: Option<ResMut<crate::game::LobbyState>>,
+    mut start_match: MessageWriter<crate::game::StartMatchRequest>,
+    mut meeting_cmds: MessageWriter<crate::game::MeetingCommand>,
+    mut game_phase: Option<ResMut<GamePhase>>,
 ) {
     let Ok(mut q) = bridge.actions.lock() else {
         return;
     };
     for action in q.drain(..) {
         match action {
-            UiAction::StartGame => {
+            UiAction::StartGame | UiAction::HostLobby => {
                 transition.begin_to_state(AppState::Loading);
+            }
+            UiAction::JoinLobby => {
+                transition.begin_to_state(AppState::Loading);
+            }
+            UiAction::ToggleReady => {
+                if let Some(ref mut lobby) = lobby {
+                    lobby.local_ready = !lobby.local_ready;
+                    let ready = lobby.local_ready;
+                    if let Some(slot) = lobby.slots.iter_mut().find(|s| s.is_local) {
+                        slot.ready = ready;
+                    }
+                }
+            }
+            UiAction::StartMatch => {
+                start_match.write(crate::game::StartMatchRequest);
+            }
+            UiAction::LeaveLobby => {
+                transition.begin_to_state(AppState::Title);
+            }
+            UiAction::CallEmergency => {
+                meeting_cmds.write(crate::game::MeetingCommand::Emergency);
+            }
+            UiAction::CastVote(id) => {
+                meeting_cmds.write(crate::game::MeetingCommand::Vote(id));
+            }
+            UiAction::SkipVote => {
+                meeting_cmds.write(crate::game::MeetingCommand::Skip);
+            }
+            UiAction::PlayAgain => {
+                if let Some(ref mut gp) = game_phase {
+                    **gp = GamePhase::None;
+                }
+                transition.begin_to_state(AppState::Lobby);
+            }
+            UiAction::SetPlayerName(name) => {
+                save.player_name = name.chars().take(16).collect();
+                if let Some(ref mut lobby) = lobby {
+                    if let Some(slot) = lobby.slots.iter_mut().find(|s| s.is_local) {
+                        slot.name = save.player_name.clone();
+                    }
+                }
+            }
+            UiAction::CycleColor => {
+                save.preferred_color_index =
+                    (save.preferred_color_index + 1) % crate::game::PLAYER_COLORS.len() as u8;
+                if let Some(ref mut lobby) = lobby {
+                    if let Some(slot) = lobby.slots.iter_mut().find(|s| s.is_local) {
+                        slot.color_index = save.preferred_color_index;
+                    }
+                }
             }
             UiAction::OpenSettings => {
                 if let Ok(mut ui) = bridge.shared.lock() {
@@ -382,10 +540,12 @@ fn handle_pause_input(
     mut virtual_time: ResMut<Time<Virtual>>,
     mut pending_unpause: ResMut<PendingUnpause>,
     transition: Res<Transition<AppState>>,
+    game_phase: Option<Res<GamePhase>>,
 ) {
     if *state.get() != AppState::InGame {
         return;
     }
+    let _ = game_phase;
     if transition.block_input {
         return;
     }

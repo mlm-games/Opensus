@@ -1,21 +1,21 @@
 [package]
-name = "my-ecosystem-bevy"
-version = "0.2.1"
+name = "opensus"
+version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0"
-description = "Clone of my Godot template for bevy (port of my-ecosystem-template) with Repose UI"
-repository = "https://github.com/mlm-games/my-ecosystem-template-bevy"
+description = "social deduction game (migrated from the Godot version)"
+repository = "https://github.com/mlm-games/opensus"
 readme = "README.md"
-keywords = ["bevy", "gamedev", "template", "2d", "repose"]
+keywords = ["bevy", "gamedev", "social-deduction", "multiplayer", "repose"]
 categories = ["game-development"]
 rust-version = "1.96"
-default-run = "my-ecosystem-bevy-desktop"
+default-run = "opensus-desktop"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name = "my-ecosystem-bevy-desktop"
+name = "opensus-desktop"
 path = "src/main.rs"
 
 [features]
@@ -71,10 +71,10 @@ repose-bevy = { git = "https://github.com/mlm-games/repose-bevy", default-featur
     "shared-device",
 ] }
 wgpu = { version = "30", features = ["webgpu", "webgl"] }
-repose-core = "0.25"
-repose-ui = "0.25"
-repose-material = "0.25"
-repose-render-wgpu = "0.25"
+repose-core = "0.27"
+repose-ui = "0.27"
+repose-material = "0.27"
+repose-render-wgpu = "0.27"
 game-utils = { git = "https://github.com/mlm-games/game-utils" }
 game-utils-bevy = { git = "https://github.com/mlm-games/game-utils" }
 rand = "0.10"

@@ -1,8 +1,7 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
-use std::rc::Rc;
 
 use repose_core::View;
 use repose_core::prelude::{
@@ -20,6 +19,7 @@ use repose_ui::overlay::OverlayHandle;
 use repose_ui::{Column, Row, Text as RText, TextStyle, ViewExt, ZStack};
 
 use crate::app::{AppState, OverlayMenu, SharedUi};
+use crate::game::{GamePhase, Role};
 
 fn t(translations: &HashMap<String, String>, key: &str, fallback: &str) -> String {
     translations
@@ -31,6 +31,17 @@ fn t(translations: &HashMap<String, String>, key: &str, fallback: &str) -> Strin
 #[derive(Clone, Debug)]
 pub enum UiAction {
     StartGame,
+    HostLobby,
+    JoinLobby,
+    ToggleReady,
+    StartMatch,
+    LeaveLobby,
+    CallEmergency,
+    CastVote(u64),
+    SkipVote,
+    PlayAgain,
+    SetPlayerName(String),
+    CycleColor,
     OpenSettings,
     OpenCredits,
     CloseOverlay,
@@ -70,7 +81,7 @@ pub fn compose_root(
     actions: Arc<Mutex<Vec<UiAction>>>,
 ) -> View {
     let root = ZStack(Modifier::new().fill_max_size());
-    let settings_view = settings_ui(overlay, &st, actions.clone());
+    let settings_view = settings_ui(overlay.clone(), &st, actions.clone());
 
     let content = match st.phase {
         AppState::Splash => splash_ui(),
@@ -88,10 +99,33 @@ pub fn compose_root(
                 popup_anim_config("title_credits"),
             ),
         )),
+        AppState::Lobby => ZStack(Modifier::new().fill_max_size()).child((
+            lobby_ui(&st, actions.clone()),
+            AnimatedVisibility(
+                st.overlay == OverlayMenu::Settings,
+                settings_view.clone(),
+                popup_anim_config("lobby_settings"),
+            ),
+        )),
         AppState::InGame => {
-            let hud = ingame_hud(&st);
+            let hud = ingame_hud(&st, actions.clone());
+            let meeting = meeting_overlay(&st, actions.clone());
+            let gameover = gameover_overlay(&st, actions.clone());
             ZStack(Modifier::new().fill_max_size()).child((
                 hud,
+                AnimatedVisibility(
+                    matches!(
+                        st.game_phase,
+                        GamePhase::Meeting | GamePhase::Voting | GamePhase::Results
+                    ),
+                    meeting,
+                    popup_anim_config("meeting"),
+                ),
+                AnimatedVisibility(
+                    matches!(st.game_phase, GamePhase::GameOver { .. }),
+                    gameover,
+                    popup_anim_config("gameover"),
+                ),
                 AnimatedVisibility(
                     st.overlay == OverlayMenu::Pause,
                     pause_overlay(&st, actions.clone()),
@@ -138,9 +172,9 @@ fn splash_ui() -> View {
             .fill_max_size()
             .justify_content(JustifyContent::CENTER)
             .align_items(AlignItems::CENTER)
-            .background(col(8, 8, 12)),
+            .background(col(8, 12, 16)),
     )
-    .child(RText("My Ecosystem").size(48.0).color(RColor::WHITE))
+    .child(RText("Opensus").size(48.0).color(RColor::WHITE))
 }
 
 fn loading_ui(st: &SharedUi) -> View {
@@ -150,9 +184,13 @@ fn loading_ui(st: &SharedUi) -> View {
             .fill_max_size()
             .justify_content(JustifyContent::CENTER)
             .align_items(AlignItems::CENTER)
-            .background(col(8, 8, 12)),
+            .background(col(8, 12, 16)),
     )
-    .child(RText("Loading...").size(32.0).color(RColor::WHITE))
+    .child(
+        RText(t(&st.translations, "loading", "Loading..."))
+            .size(32.0)
+            .color(RColor::WHITE),
+    )
     .child(spacer(16.0))
     .child(
         RText(format!("{:.0}%", pct * 100.0))
@@ -172,7 +210,7 @@ fn loading_ui(st: &SharedUi) -> View {
             Modifier::new()
                 .width((320.0 * pct).max(1.0))
                 .height(12.0)
-                .background(col(96, 165, 250))
+                .background(col(160, 50, 50))
                 .clip_rounded(6.0)
                 .align_self(AlignSelf::FLEX_START),
         )),
@@ -184,6 +222,7 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let a2 = actions.clone();
     let a3 = actions.clone();
     let a4 = actions.clone();
+    let a5 = actions.clone();
     let tr = &st.translations;
 
     Column(
@@ -191,28 +230,296 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .fill_max_size()
             .justify_content(JustifyContent::CENTER)
             .align_items(AlignItems::CENTER)
-            .background(col(8, 8, 12)),
+            .background(col(8, 12, 16)),
     )
-    .child((
-        RText(t(tr, "app-title", "My Ecosystem Bevy"))
+    .child(
+        RText(t(tr, "app-title", "Opensus"))
             .size(56.0)
             .color(RColor::WHITE),
-        spacer(24.0),
-        mk_button(
-            &t(tr, "start-game", "Start Game"),
-            col(60, 120, 200),
-            move || push(&a1, UiAction::StartGame),
-        ),
-        mk_button(&t(tr, "settings", "Settings"), col(70, 70, 90), move || {
-            push(&a2, UiAction::OpenSettings)
-        }),
-        mk_button(&t(tr, "credits", "Credits"), col(70, 70, 90), move || {
-            push(&a3, UiAction::OpenCredits)
-        }),
-        mk_button(&t(tr, "quit", "Quit"), col(180, 60, 60), move || {
-            push(&a4, UiAction::QuitApp)
-        }),
+    )
+    .child(spacer(8.0))
+    .child(
+        RText("One amongst us is not like the rest")
+            .size(16.0)
+            .color(col(180, 180, 190)),
+    )
+    .child(spacer(24.0))
+    .child(mk_button(
+        &t(tr, "host-game", "Host Game"),
+        col(120, 40, 40),
+        move || push(&a1, UiAction::HostLobby),
     ))
+    .child(mk_button(
+        &t(tr, "join-game", "Join Game (local)"),
+        col(60, 80, 120),
+        move || push(&a5, UiAction::JoinLobby),
+    ))
+    .child(mk_button(
+        &t(tr, "settings", "Settings"),
+        col(70, 70, 90),
+        move || push(&a2, UiAction::OpenSettings),
+    ))
+    .child(mk_button(
+        &t(tr, "credits", "Credits"),
+        col(70, 70, 90),
+        move || push(&a3, UiAction::OpenCredits),
+    ))
+    .child(mk_button(
+        &t(tr, "quit", "Quit"),
+        col(180, 60, 60),
+        move || push(&a4, UiAction::QuitApp),
+    ))
+}
+
+fn lobby_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    let tr = &st.translations;
+    let a_ready = actions.clone();
+    let a_start = actions.clone();
+    let a_leave = actions.clone();
+    let a_color = actions.clone();
+    let a_set = actions.clone();
+
+    let mut list = Column(Modifier::new().gap(6.0).align_items(AlignItems::FLEX_START));
+    for s in &st.lobby_slots {
+        let mark = if s.ready { "[R]" } else { "[ ]" };
+        let host = if s.is_host { " (host)" } else { "" };
+        let you = if s.is_local { " *" } else { "" };
+        list = list.child(
+            RText(format!("{mark} {}{}{}", s.name, host, you))
+                .size(18.0)
+                .color(RColor::WHITE),
+        );
+    }
+
+    Column(
+        Modifier::new()
+            .fill_max_size()
+            .justify_content(JustifyContent::CENTER)
+            .align_items(AlignItems::CENTER)
+            .background(col(8, 12, 16)),
+    )
+    .child(
+        RText(t(tr, "lobby-waiting", "Lobby"))
+            .size(40.0)
+            .color(RColor::WHITE),
+    )
+    .child(spacer(8.0))
+    .child(
+        RText(format!("{}: {}", t(tr, "name", "Name"), st.player_name))
+            .size(16.0)
+            .color(col(200, 200, 200)),
+    )
+    .child(mk_button(
+        &t(tr, "color", "Cycle Color"),
+        col(70, 70, 90),
+        move || push(&a_color, UiAction::CycleColor),
+    ))
+    .child(spacer(12.0))
+    .child(
+        RText(t(tr, "players", "Players"))
+            .size(22.0)
+            .color(RColor::WHITE),
+    )
+    .child(list)
+    .child(spacer(16.0))
+    .child(mk_button(
+        &if st.local_ready {
+            t(tr, "unready", "Unready")
+        } else {
+            t(tr, "ready", "Ready")
+        },
+        col(60, 120, 80),
+        move || push(&a_ready, UiAction::ToggleReady),
+    ))
+    .child(if st.is_host {
+        mk_button(
+            &t(tr, "start-match", "Start Match"),
+            col(140, 50, 50),
+            move || push(&a_start, UiAction::StartMatch),
+        )
+    } else {
+        spacer(1.0)
+    })
+    .child(mk_button(
+        &t(tr, "settings", "Settings"),
+        col(70, 70, 90),
+        move || push(&a_set, UiAction::OpenSettings),
+    ))
+    .child(mk_button(
+        &t(tr, "leave-lobby", "Leave"),
+        col(100, 60, 60),
+        move || push(&a_leave, UiAction::LeaveLobby),
+    ))
+}
+
+fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    let tr = &st.translations;
+    let role_str = match st.my_role {
+        Some(Role::Impostor) => t(tr, "impostor", "Impostor"),
+        Some(Role::Crewmate) => t(tr, "crewmate", "Crewmate"),
+        None => "—".into(),
+    };
+    let a_em = actions.clone();
+
+    Column(
+        Modifier::new()
+            .fill_max_size()
+            .padding(16.0)
+            .align_items(AlignItems::FLEX_START)
+            .justify_content(JustifyContent::FLEX_START),
+    )
+    .child((
+        RText(format!("{}: {}", t(tr, "you-are", "You are"), role_str))
+            .size(20.0)
+            .color(if matches!(st.my_role, Some(Role::Impostor)) {
+                col(220, 80, 80)
+            } else {
+                RColor::WHITE
+            }),
+        RText(format!(
+            "{}: {}/{}",
+            t(tr, "tasks-remaining", "Tasks"),
+            st.tasks_done,
+            st.tasks_total
+        ))
+        .size(16.0)
+        .color(col(180, 220, 180)),
+        if matches!(st.my_role, Some(Role::Impostor)) {
+            RText(format!(
+                "{}: {:.0}s  (Q)",
+                t(tr, "kill-cooldown", "Kill CD"),
+                st.kill_cd
+            ))
+            .size(16.0)
+            .color(col(220, 160, 160))
+        } else {
+            spacer(1.0)
+        },
+        RText(t(
+            tr,
+            "controls-hint",
+            "WASD move | E task | Q kill | R report | F emergency | Esc pause",
+        ))
+        .size(13.0)
+        .color(col(160, 160, 170)),
+        spacer(8.0),
+        mk_button_sm("!", move || push(&a_em, UiAction::CallEmergency)),
+    ))
+}
+
+fn meeting_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    let tr = &st.translations;
+    let phase_label = match st.game_phase {
+        GamePhase::Meeting => t(tr, "discussion", "Discussion"),
+        GamePhase::Voting => t(tr, "voting", "Voting"),
+        GamePhase::Results => t(tr, "ejected", "Results"),
+        _ => String::new(),
+    };
+
+    let mut votes = Column(Modifier::new().gap(6.0));
+    if matches!(st.game_phase, GamePhase::Voting) && !st.my_voted {
+        for (id, name, dead) in &st.vote_options {
+            if *dead {
+                continue;
+            }
+            let a = actions.clone();
+            let id = *id;
+            votes = votes.child(mk_button(
+                &format!("{} {}", t(tr, "vote", "Vote"), name),
+                col(70, 70, 100),
+                move || push(&a, UiAction::CastVote(id)),
+            ));
+        }
+        let a_skip = actions.clone();
+        votes = votes.child(mk_button(
+            &t(tr, "skip", "Skip"),
+            col(90, 90, 90),
+            move || push(&a_skip, UiAction::SkipVote),
+        ));
+    }
+
+    Column(
+        Modifier::new()
+            .fill_max_size()
+            .justify_content(JustifyContent::CENTER)
+            .align_items(AlignItems::CENTER)
+            .background(RColor::from_rgba(0, 0, 0, 200)),
+    )
+    .child(
+        Column(
+            Modifier::new()
+                .width(420.0)
+                .padding(24.0)
+                .background(col(24, 24, 32))
+                .clip_rounded(12.0)
+                .align_items(AlignItems::CENTER),
+        )
+        .child((
+            RText(t(tr, "emergency-meeting", "Meeting"))
+                .size(32.0)
+                .color(RColor::WHITE),
+            RText(phase_label).size(18.0).color(col(200, 180, 180)),
+            RText(format!("{:.0}s", st.phase_timer))
+                .size(16.0)
+                .color(col(180, 180, 180)),
+            spacer(8.0),
+            RText(st.meeting_prompt.clone())
+                .size(18.0)
+                .color(RColor::WHITE),
+            spacer(8.0),
+            RText(st.result_text.clone())
+                .size(18.0)
+                .color(col(220, 200, 120)),
+            votes,
+        )),
+    )
+}
+
+fn gameover_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    let tr = &st.translations;
+    let (msg, color) = match st.game_phase {
+        GamePhase::GameOver { crew_win: true } => {
+            (t(tr, "crewmates-win", "Crewmates win!"), col(80, 180, 100))
+        }
+        GamePhase::GameOver { crew_win: false } => {
+            (t(tr, "impostors-win", "Impostors win!"), col(200, 70, 70))
+        }
+        _ => (String::new(), RColor::WHITE),
+    };
+    let a = actions.clone();
+    let a2 = actions.clone();
+
+    Column(
+        Modifier::new()
+            .fill_max_size()
+            .justify_content(JustifyContent::CENTER)
+            .align_items(AlignItems::CENTER)
+            .background(RColor::from_rgba(0, 0, 0, 210)),
+    )
+    .child(
+        Column(
+            Modifier::new()
+                .width(400.0)
+                .padding(28.0)
+                .background(col(20, 20, 28))
+                .clip_rounded(12.0)
+                .align_items(AlignItems::CENTER),
+        )
+        .child((
+            RText(msg).size(36.0).color(color),
+            spacer(16.0),
+            mk_button(
+                &t(tr, "play-again", "Play Again"),
+                col(120, 50, 50),
+                move || push(&a, UiAction::PlayAgain),
+            ),
+            mk_button(
+                &t(tr, "quit-to-title", "Quit to Title"),
+                col(70, 70, 90),
+                move || push(&a2, UiAction::QuitToTitle),
+            ),
+        )),
+    )
 }
 
 fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
@@ -426,13 +733,16 @@ fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .size(36.0)
             .color(RColor::WHITE),
         spacer(12.0),
-        RText("Original Godot template: mlm-games")
+        RText("Opensus — social deduction in Bevy")
             .size(16.0)
             .color(RColor::WHITE),
-        RText("Bevy + Repose port: mlm-games")
+        RText("Inspired by OpenSuspect (GPL)")
             .size(16.0)
             .color(RColor::WHITE),
-        RText("Engine: Bevy  UI: Repose")
+        RText("Ecosystem: mlm-games template + game-utils")
+            .size(16.0)
+            .color(RColor::WHITE),
+        RText("Engine: Bevy  |  UI: Repose")
             .size(16.0)
             .color(RColor::WHITE),
         spacer(16.0),
@@ -449,32 +759,6 @@ fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .background(RColor::from_rgba(0, 0, 0, 180)),
     )
     .child(inner)
-}
-
-fn ingame_hud(st: &SharedUi) -> View {
-    let tr = &st.translations;
-    Column(
-        Modifier::new()
-            .fill_max_size()
-            .padding(16.0)
-            .align_items(AlignItems::FLEX_START)
-            .justify_content(JustifyContent::FLEX_START),
-    )
-    .child((
-        RText(format!("{}: {}", t(tr, "score", "Score"), st.score))
-            .size(22.0)
-            .color(RColor::WHITE),
-        RText(format!("{}: {}", t(tr, "best", "Best"), st.high_score))
-            .size(16.0)
-            .color(col(200, 200, 200)),
-        RText(t(
-            tr,
-            "controls-hint",
-            "WASD move  Click/Space shoot  Esc pause",
-        ))
-        .size(14.0)
-        .color(col(180, 180, 180)),
-    ))
 }
 
 fn mk_button(label: &str, _bg: RColor, on_click: impl Fn() + 'static) -> View {

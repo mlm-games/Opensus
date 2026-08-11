@@ -9,11 +9,11 @@ jobs:
     uses: mlm-games/ci/.github/workflows/rust-app-release.yml@main
     with:
       working-directory: .
-      app-slug: my-ecosystem-bevy
+      app-slug: opensus
       system-deps-linux: libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       include-web: true
       include-android: true
       include-universal: true
       itch-username: mlm-games
-      itch-game: my-ecosystem-bevy
+      itch-game: opensus
     secrets: inherit
