@@ -8,6 +8,7 @@ pub struct MapRoot;
 
 #[derive(Component)]
 pub struct Room {
+    #[expect(dead_code)]
     pub name: &'static str,
 }
 

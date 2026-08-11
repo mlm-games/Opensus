@@ -15,6 +15,7 @@ pub enum GamePhase {
 
 #[derive(Resource, Clone)]
 pub struct MatchConfig {
+    #[expect(dead_code)]
     pub max_players: u8,
     pub impostor_count: u8,
     pub emergency_meetings: u8,
@@ -22,6 +23,7 @@ pub struct MatchConfig {
     pub kill_range: f32,
     pub discussion_time: f32,
     pub voting_time: f32,
+    #[expect(dead_code)]
     pub results_time: f32,
     pub tasks_to_win: u32,
     pub player_speed: f32,

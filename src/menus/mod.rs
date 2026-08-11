@@ -30,6 +30,7 @@ fn t(translations: &HashMap<String, String>, key: &str, fallback: &str) -> Strin
 
 #[derive(Clone, Debug)]
 pub enum UiAction {
+    #[expect(dead_code)]
     StartGame,
     HostLobby,
     JoinLobby,
@@ -40,6 +41,7 @@ pub enum UiAction {
     CastVote(u64),
     SkipVote,
     PlayAgain,
+    #[expect(dead_code)]
     SetPlayerName(String),
     CycleColor,
     OpenSettings,
@@ -52,6 +54,7 @@ pub enum UiAction {
     SetSfxVol(f32),
     SetMusicVol(f32),
     SaveSettings,
+    #[expect(dead_code)]
     NextLanguage,
     SetLanguage(String),
 }
@@ -108,10 +111,22 @@ pub fn compose_root(
             ),
         )),
         AppState::InGame => {
+            // Lights sabotage: dim the world (simple v1; replace with a
+            // radial-hole shader when you add real vision/FOW).
+            let darkness = if st.lights_out {
+                Column(
+                    Modifier::new()
+                        .fill_max_size()
+                        .background(RColor::from_rgba(0, 0, 5, 170)),
+                )
+            } else {
+                spacer(1.0)
+            };
             let hud = ingame_hud(&st, actions.clone());
             let meeting = meeting_overlay(&st, actions.clone());
             let gameover = gameover_overlay(&st, actions.clone());
             ZStack(Modifier::new().fill_max_size()).child((
+                darkness,
                 hud,
                 AnimatedVisibility(
                     matches!(
@@ -395,10 +410,22 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         } else {
             spacer(1.0)
         },
+        if let Some(kind) = &st.sabotage_kind {
+            let time_part = if st.sabotage_remaining > 0.0 {
+                format!(" — {:.0}s", st.sabotage_remaining)
+            } else {
+                String::new()
+            };
+            RText(format!("⚠ SABOTAGE: {kind}{time_part} (hold E at station)"))
+                .size(16.0)
+                .color(col(235, 160, 40))
+        } else {
+            spacer(1.0)
+        },
         RText(t(
             tr,
             "controls-hint",
-            "WASD move | E task | Q kill | R report | F emergency | Esc pause",
+            "WASD move | E task/fix | Q kill | R report | F emergency | 1/2/3 sabotage | Esc pause",
         ))
         .size(13.0)
         .color(col(160, 160, 170)),

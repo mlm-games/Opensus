@@ -14,7 +14,9 @@ pub struct TaskBoard {
 
 #[derive(Component)]
 pub struct TaskStation {
+    #[expect(dead_code)]
     pub id: u32,
+    #[expect(dead_code)]
     pub label: &'static str,
     pub progress: f32,
     pub done: bool,

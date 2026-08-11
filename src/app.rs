@@ -140,6 +140,9 @@ pub struct SharedUi {
     pub result_text: String,
     pub player_name: String,
     pub color_index: u8,
+    pub sabotage_kind: Option<String>,
+    pub sabotage_remaining: f32,
+    pub lights_out: bool,
 }
 
 impl Default for SharedUi {
@@ -173,6 +176,9 @@ impl Default for SharedUi {
             result_text: String::new(),
             player_name: "Agent".to_string(),
             color_index: 0,
+            sabotage_kind: None,
+            sabotage_remaining: 0.0,
+            lights_out: false,
         }
     }
 }
@@ -321,6 +327,7 @@ fn sync_shared_game(
     kill_cd: Option<Res<crate::game::KillCooldown>>,
     meeting: Option<Res<crate::game::MeetingState>>,
     local_role: Option<Res<crate::game::LocalRole>>,
+    sabotage: Option<Res<crate::game::ActiveSabotage>>,
 ) {
     let Ok(mut ui) = bridge.shared.lock() else {
         return;
@@ -355,6 +362,15 @@ fn sync_shared_game(
         ui.vote_options.clear();
         ui.my_voted = false;
         ui.result_text.clear();
+    }
+    if let Some(s) = sabotage {
+        ui.sabotage_kind = s.kind.map(|k| format!("{k:?}"));
+        ui.sabotage_remaining = s.critical_remaining();
+        ui.lights_out = matches!(s.kind, Some(crate::game::SabotageKind::Lights));
+    } else {
+        ui.sabotage_kind = None;
+        ui.sabotage_remaining = 0.0;
+        ui.lights_out = false;
     }
 }
 
@@ -439,19 +455,19 @@ fn process_ui_actions(
             }
             UiAction::SetPlayerName(name) => {
                 save.player_name = name.chars().take(16).collect();
-                if let Some(ref mut lobby) = lobby {
-                    if let Some(slot) = lobby.slots.iter_mut().find(|s| s.is_local) {
-                        slot.name = save.player_name.clone();
-                    }
+                if let Some(ref mut lobby) = lobby
+                    && let Some(slot) = lobby.slots.iter_mut().find(|s| s.is_local)
+                {
+                    slot.name = save.player_name.clone();
                 }
             }
             UiAction::CycleColor => {
                 save.preferred_color_index =
                     (save.preferred_color_index + 1) % crate::game::PLAYER_COLORS.len() as u8;
-                if let Some(ref mut lobby) = lobby {
-                    if let Some(slot) = lobby.slots.iter_mut().find(|s| s.is_local) {
-                        slot.color_index = save.preferred_color_index;
-                    }
+                if let Some(ref mut lobby) = lobby
+                    && let Some(slot) = lobby.slots.iter_mut().find(|s| s.is_local)
+                {
+                    slot.color_index = save.preferred_color_index;
                 }
             }
             UiAction::OpenSettings => {

@@ -6,12 +6,14 @@ use crate::app::{AppState, Paused};
 use crate::game::lobby::LobbyState;
 use crate::save::SaveData;
 use game_utils_bevy::juice::Juice;
+use game_utils_bevy::screen_effects::CameraBase;
 use game_utils_bevy::transitions::Transition;
 
 #[derive(Component)]
 pub struct Player {
     pub id: u64,
     pub name: String,
+    #[expect(dead_code)]
     pub color_index: u8,
     pub speed: f32,
 }
@@ -30,8 +32,16 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(AppState::InGame), spawn_players_from_lobby)
             .add_systems(
+                OnExit(AppState::InGame),
+                |mut cam: Query<&mut CameraBase, With<Camera2d>>| {
+                    if let Ok(mut base) = cam.single_mut() {
+                        base.translation = Vec3::new(0.0, 0.0, 1000.0);
+                    }
+                },
+            )
+            .add_systems(
                 Update,
-                (local_movement, ai_movement)
+                (local_movement, ai_movement, camera_follow)
                     .run_if(in_state(AppState::InGame))
                     .run_if(|p: Res<Paused>| !p.0)
                     .run_if(|t: Res<Transition<AppState>>| !t.block_input)
@@ -47,7 +57,7 @@ fn spawn_players_from_lobby(
     save: Res<SaveData>,
     mut local_role: ResMut<LocalRole>,
 ) {
-    let mut slots: Vec<_> = lobby.slots.iter().cloned().collect();
+    let mut slots: Vec<_> = lobby.slots.to_vec();
     if slots.is_empty() {
         slots.push(super::lobby::LobbySlot {
             id: 1,
@@ -180,6 +190,22 @@ fn ai_movement(
             tf.translation.y = tf.translation.y.clamp(-300.0, 300.0);
         }
     }
+}
+
+fn camera_follow(
+    mut camera: Query<&mut CameraBase, With<Camera2d>>,
+    local: Query<&Transform, (With<LocalPlayer>, Without<Camera2d>)>,
+) {
+    let Ok(mut base) = camera.single_mut() else {
+        return;
+    };
+    let Ok(tf) = local.single() else { return };
+    let target = Vec3::new(
+        tf.translation.x.clamp(-320.0, 320.0),
+        tf.translation.y.clamp(-160.0, 160.0),
+        1000.0,
+    );
+    base.translation = base.translation.lerp(target, 0.12);
 }
 
 pub const PLAYER_COLORS: [Color; 12] = [

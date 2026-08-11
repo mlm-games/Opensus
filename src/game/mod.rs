@@ -2,18 +2,22 @@ mod kill_sabotage;
 mod lobby;
 mod map;
 mod meeting_vote;
+mod networking;
 mod phases;
 mod player;
 mod roles;
+mod sabotage;
 mod tasks;
 
 pub use kill_sabotage::*;
 pub use lobby::*;
 pub use map::*;
 pub use meeting_vote::*;
+pub use networking::*;
 pub use phases::*;
 pub use player::*;
 pub use roles::*;
+pub use sabotage::*;
 pub use tasks::*;
 
 use bevy::prelude::*;
@@ -44,6 +48,8 @@ impl Plugin for GamePlugin {
                 TasksPlugin,
                 KillSabotagePlugin,
                 MeetingVotePlugin,
+                SabotagePlugin,
+                NetworkingPlugin,
             ))
             .add_systems(OnEnter(AppState::InGame), setup_match)
             .add_systems(OnExit(AppState::InGame), cleanup_match)

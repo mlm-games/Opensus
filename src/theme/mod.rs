@@ -2,9 +2,13 @@ use bevy::prelude::*;
 
 #[derive(Resource)]
 pub struct Theme {
+    #[expect(dead_code)]
     pub bg: Color,
+    #[expect(dead_code)]
     pub accent: Color,
+    #[expect(dead_code)]
     pub danger: Color,
+    #[expect(dead_code)]
     pub text: Color,
 }
 
