@@ -25,6 +25,7 @@ use game_utils_bevy::{
 
 const TRANSLATION_KEYS: &[&str] = &[
     "app-title",
+    "app-tagline",
     "start-game",
     "host-game",
     "join-game",
@@ -36,6 +37,7 @@ const TRANSLATION_KEYS: &[&str] = &[
     "credits",
     "quit",
     "paused",
+    "pause",
     "resume",
     "quit-to-title",
     "save",
@@ -45,6 +47,7 @@ const TRANSLATION_KEYS: &[&str] = &[
     "music-volume",
     "language",
     "loading",
+    "loading-subtitle",
     "crewmate",
     "impostor",
     "alive",
@@ -467,6 +470,17 @@ fn process_ui_actions(
                     ui.saved_language = locale.current.clone();
                 }
                 *overlay = OverlayMenu::Settings;
+            }
+            UiAction::TogglePause => {
+                if !paused.0 {
+                    paused.0 = true;
+                    *overlay = OverlayMenu::Pause;
+                    virtual_time.pause();
+                    pending_unpause.0 = None;
+                } else {
+                    *overlay = OverlayMenu::None;
+                    pending_unpause.0 = Some(Timer::from_seconds(0.2, TimerMode::Once));
+                }
             }
             UiAction::OpenCredits => *overlay = OverlayMenu::Credits,
             UiAction::CloseOverlay => {

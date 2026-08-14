@@ -101,8 +101,14 @@ fn update_mask(
     phase: Res<GamePhase>,
     sabotage: Res<super::ActiveSabotage>,
     masks: Res<VisionMasks>,
-    local: Query<(&Transform, Option<&Role>, Option<&Ghost>), With<LocalPlayer>>,
-    mut mask: Query<(&mut Transform, &mut Sprite, &mut Visibility), With<VisionMask>>,
+    local: Query<
+        (&Transform, Option<&Role>, Option<&Ghost>),
+        (With<LocalPlayer>, Without<VisionMask>),
+    >,
+    mut mask: Query<
+        (&mut Transform, &mut Sprite, &mut Visibility),
+        (With<VisionMask>, Without<LocalPlayer>),
+    >,
 ) {
     let Ok((player_transform, role, ghost)) = local.single() else {
         return;
