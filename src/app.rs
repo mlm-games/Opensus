@@ -414,6 +414,8 @@ fn process_ui_actions(
     mut start_match: MessageWriter<crate::game::StartMatchRequest>,
     mut meeting_cmds: MessageWriter<crate::game::MeetingCommand>,
     mut game_phase: Option<ResMut<GamePhase>>,
+    mut runtime_mode: ResMut<crate::game::RuntimeMode>,
+    mut pending_network: ResMut<crate::game::PendingNetworkStart>,
 ) {
     let Ok(mut q) = bridge.actions.lock() else {
         return;
@@ -421,9 +423,17 @@ fn process_ui_actions(
     for action in q.drain(..) {
         match action {
             UiAction::HostLobby => {
+                *runtime_mode = crate::game::RuntimeMode::Host;
+                *pending_network = crate::game::PendingNetworkStart::HostLocal {
+                    bind_addr: "127.0.0.1:5000".to_string(),
+                };
                 transition.begin_to_state(AppState::Loading);
             }
             UiAction::JoinLobby => {
+                *runtime_mode = crate::game::RuntimeMode::Client;
+                *pending_network = crate::game::PendingNetworkStart::JoinLocal {
+                    server_addr: "127.0.0.1:5000".to_string(),
+                };
                 transition.begin_to_state(AppState::Loading);
             }
             UiAction::ToggleReady => {
@@ -439,6 +449,8 @@ fn process_ui_actions(
                 start_match.write(crate::game::StartMatchRequest);
             }
             UiAction::LeaveLobby => {
+                *pending_network = crate::game::PendingNetworkStart::None;
+                *runtime_mode = crate::game::RuntimeMode::Local;
                 transition.begin_to_state(AppState::Title);
             }
             UiAction::CallEmergency => {
@@ -507,6 +519,8 @@ fn process_ui_actions(
                 pending_unpause.0 = Some(Timer::from_seconds(0.2, TimerMode::Once));
             }
             UiAction::QuitToTitle => {
+                *pending_network = crate::game::PendingNetworkStart::None;
+                *runtime_mode = crate::game::RuntimeMode::Local;
                 paused.0 = false;
                 *overlay = OverlayMenu::None;
                 pending_unpause.0 = None;

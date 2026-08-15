@@ -1,8 +1,9 @@
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use super::Role;
 
-#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum GamePhase {
     #[default]
     None,

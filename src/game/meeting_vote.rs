@@ -133,7 +133,8 @@ impl Plugin for MeetingVotePlugin {
                 .chain()
                 .run_if(in_state(AppState::InGame))
                 .run_if(|p: Res<Paused>| !p.0)
-                .run_if(|t: Res<Transition<AppState>>| !t.block_input),
+                .run_if(|t: Res<Transition<AppState>>| !t.block_input)
+                .run_if(super::has_authority),
         );
     }
 }

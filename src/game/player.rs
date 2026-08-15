@@ -3,6 +3,7 @@ use rand::seq::SliceRandom;
 
 use super::{Alive, GamePhase, LocalRole, MatchCleanup, MatchConfig, Role};
 use crate::app::{AppState, Paused};
+use crate::game::RuntimeMode;
 use crate::game::lobby::LobbyState;
 use crate::save::SaveData;
 use game_utils_bevy::juice::Juice;
@@ -39,28 +40,31 @@ pub struct AiPlayer {
 pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::InGame), spawn_players_from_lobby)
-            .add_systems(
-                OnExit(AppState::InGame),
-                |mut cam: Query<&mut CameraBase, With<Camera2d>>| {
-                    if let Ok(mut base) = cam.single_mut() {
-                        base.translation = Vec3::new(0.0, 0.0, 1000.0);
-                    }
-                },
+        app.add_systems(
+            OnEnter(AppState::InGame),
+            spawn_players_from_lobby.run_if(super::has_authority),
+        )
+        .add_systems(
+            OnExit(AppState::InGame),
+            |mut cam: Query<&mut CameraBase, With<Camera2d>>| {
+                if let Ok(mut base) = cam.single_mut() {
+                    base.translation = Vec3::new(0.0, 0.0, 1000.0);
+                }
+            },
+        )
+        .add_systems(
+            Update,
+            (
+                local_movement,
+                ai_movement.run_if(super::has_authority),
+                camera_follow,
             )
-            .add_systems(
-                Update,
-                (
-                    local_movement,
-                    ai_movement.run_if(super::has_authority),
-                    camera_follow,
-                )
-                    .chain()
-                    .run_if(in_state(AppState::InGame))
-                    .run_if(|p: Res<Paused>| !p.0)
-                    .run_if(|t: Res<Transition<AppState>>| !t.block_input)
-                    .run_if(|ph: Res<GamePhase>| matches!(*ph, GamePhase::Playing)),
-            );
+                .chain()
+                .run_if(in_state(AppState::InGame))
+                .run_if(|p: Res<Paused>| !p.0)
+                .run_if(|t: Res<Transition<AppState>>| !t.block_input)
+                .run_if(|ph: Res<GamePhase>| matches!(*ph, GamePhase::Playing)),
+        );
     }
 }
 
@@ -69,6 +73,7 @@ fn spawn_players_from_lobby(
     lobby: Res<LobbyState>,
     cfg: Res<MatchConfig>,
     save: Res<SaveData>,
+    mode: Res<RuntimeMode>,
     mut local_role: ResMut<LocalRole>,
     mut local_player_id: ResMut<LocalPlayerId>,
 ) {
@@ -155,7 +160,9 @@ fn spawn_players_from_lobby(
         let id = e.id();
         if slot.is_local {
             e.insert(LocalPlayer);
-        } else {
+        } else if matches!(*mode, RuntimeMode::Local) {
+            // Sandbox bots only; remote clients are moved by the authoritative
+            // host from their sent intents.
             e.insert(AiPlayer {
                 dir_timer: Timer::from_seconds(1.5, TimerMode::Repeating),
                 dir: Vec2::ZERO,
@@ -188,6 +195,7 @@ fn local_movement(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     phase: Res<GamePhase>,
+    mode: Res<RuntimeMode>,
     mut query: Query<
         (&Player, &mut PlayerIntent, &mut Transform),
         (With<LocalPlayer>, With<Alive>),
@@ -205,6 +213,11 @@ fn local_movement(
 
     intent.movement = input_direction(&keys);
     intent.interact = keys.pressed(KeyCode::KeyE);
+
+    if matches!(*mode, RuntimeMode::Client) {
+        // The authoritative server moves us via snapshots.
+        return;
+    }
 
     transform.translation += (intent.movement * player.speed * time.delta_secs()).extend(0.0);
 

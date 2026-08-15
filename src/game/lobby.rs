@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use crate::app::AppState;
 use crate::save::SaveData;
 
-use super::MatchConfig;
+use super::{MatchConfig, RuntimeMode};
 
 #[derive(Clone, Debug)]
 pub struct LobbySlot {
@@ -34,29 +34,54 @@ impl Plugin for LobbyPlugin {
     }
 }
 
-fn setup_lobby(mut lobby: ResMut<LobbyState>, save: Res<SaveData>, cfg: Res<MatchConfig>) {
-    lobby.is_host = true;
-    lobby.local_ready = false;
+fn setup_lobby(
+    mut lobby: ResMut<LobbyState>,
+    save: Res<SaveData>,
+    mode: Res<RuntimeMode>,
+    cfg: Res<MatchConfig>,
+) {
     lobby.slots.clear();
-    lobby.slots.push(LobbySlot {
-        id: 1,
-        name: save.player_name.clone(),
-        color_index: save.preferred_color_index,
-        ready: false,
-        is_local: true,
-        is_host: true,
-    });
-    // sandbox bots, capped to lobby capacity
-    let max_bots = cfg.max_players.saturating_sub(1) as u64;
-    for i in 0..max_bots.min(3) {
-        lobby.slots.push(LobbySlot {
-            id: 10 + i,
-            name: format!("Agent-{}", i + 2),
-            color_index: ((save.preferred_color_index as u64 + 1 + i) % 12) as u8,
-            ready: true,
-            is_local: false,
-            is_host: false,
-        });
+    lobby.local_ready = false;
+
+    match *mode {
+        RuntimeMode::Local => {
+            lobby.is_host = true;
+            lobby.slots.push(LobbySlot {
+                id: 1,
+                name: save.player_name.clone(),
+                color_index: save.preferred_color_index,
+                ready: false,
+                is_local: true,
+                is_host: true,
+            });
+            for i in 0..3u64 {
+                if lobby.slots.len() >= cfg.max_players as usize {
+                    break;
+                }
+                lobby.slots.push(LobbySlot {
+                    id: 10 + i,
+                    name: format!("Agent-{}", i + 2),
+                    color_index: ((save.preferred_color_index as u64 + 1 + i) % 12) as u8,
+                    ready: true,
+                    is_local: false,
+                    is_host: false,
+                });
+            }
+        }
+        RuntimeMode::Host => {
+            lobby.is_host = true;
+            lobby.slots.push(LobbySlot {
+                id: 1,
+                name: save.player_name.clone(),
+                color_index: save.preferred_color_index,
+                ready: false,
+                is_local: true,
+                is_host: true,
+            });
+        }
+        RuntimeMode::Client => {
+            lobby.is_host = false;
+        }
     }
 }
 
