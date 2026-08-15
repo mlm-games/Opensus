@@ -3577,7 +3577,7 @@ dependencies = [
 [[package]]
 name = "game-utils"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/game-utils#234f863d4e512bbe438517db49dfefb8902ddf59"
+source = "git+https://github.com/mlm-games/game-utils#7345697436e67969e7db6d45ca9e5b7a78b30b25"
 dependencies = [
  "directories",
  "fluent-bundle",
@@ -3591,7 +3591,7 @@ dependencies = [
 [[package]]
 name = "game-utils-bevy"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/game-utils#234f863d4e512bbe438517db49dfefb8902ddf59"
+source = "git+https://github.com/mlm-games/game-utils#7345697436e67969e7db6d45ca9e5b7a78b30b25"
 dependencies = [
  "bevy 0.20.0-dev",
  "game-utils",
@@ -5840,9 +5840,9 @@ dependencies = [
 
 [[package]]
 name = "repose-app"
-version = "0.27.6"
+version = "0.27.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cd452a1b10f7ec9142b19d9ea271f769c3bbf599bcd65b104933530a25e396f"
+checksum = "71ab95f55507991bd419858aee58cbff91575d93820babec9dc56fd6322af578"
 dependencies = [
  "log",
  "repose-core",
@@ -5855,7 +5855,7 @@ dependencies = [
 [[package]]
 name = "repose-bevy"
 version = "0.2.0"
-source = "git+https://github.com/mlm-games/repose-bevy#c62e744f3536710aa152876d129881edf665e0cf"
+source = "git+https://github.com/mlm-games/repose-bevy#5171103fbe7b155307d72cb98bfb0d0a61806c52"
 dependencies = [
  "anyhow",
  "bevy 0.20.0-dev",
@@ -5873,9 +5873,9 @@ dependencies = [
 
 [[package]]
 name = "repose-core"
-version = "0.27.6"
+version = "0.27.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ceca410709ba82cd45588628075afe274f6ec0bcc8a6758be42448995aaded34"
+checksum = "7ed16eaee5e1a93e4a8242a199562f3c116d3c576ece7abeb326b570a82c1ea5"
 dependencies = [
  "bitflags 2.13.1",
  "log",
@@ -5891,9 +5891,9 @@ dependencies = [
 
 [[package]]
 name = "repose-macros"
-version = "0.27.6"
+version = "0.27.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4abe289492f6cc755bcc312519ad088a114f163b8ce9e7b12064e9aee9c779a8"
+checksum = "d2bc435960f6fb1aec291e745dee27764cc847801fb475712ae4ac630d9ab8cb"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5902,9 +5902,9 @@ dependencies = [
 
 [[package]]
 name = "repose-material"
-version = "0.27.6"
+version = "0.27.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4de92fadff8141586e9ad0b4aee19b888d280c98e36f90bb95900a423dd395a3"
+checksum = "245b96ff048c0dbec90f30ae22d576b423b2d40c6c1a4a7287296d3973c34fcb"
 dependencies = [
  "repose-core",
  "repose-text",
@@ -5914,9 +5914,9 @@ dependencies = [
 
 [[package]]
 name = "repose-render-wgpu"
-version = "0.27.6"
+version = "0.27.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d711242ba2f60c12361f84aba8826348dad0c03a123ea89631ec9d89a3cf0ffd"
+checksum = "1a24a2805460cc13e71e7f5f8db2e3a62ec1dfee37487bd2919eed5950c2e421"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -5933,9 +5933,9 @@ dependencies = [
 
 [[package]]
 name = "repose-text"
-version = "0.27.6"
+version = "0.27.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd67ab79de1ae075cfd502a3c5987d1a8353f502e896c76961bff7ad48b39b55"
+checksum = "47e6a8b9380b7a5d2517262d2a97ca81f8cce6d846d24d32577eed79e9ff629a"
 dependencies = [
  "font-awl",
  "log",
@@ -5949,9 +5949,9 @@ dependencies = [
 
 [[package]]
 name = "repose-tree"
-version = "0.27.6"
+version = "0.27.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20285114209c8bd8f244a557949df0c6ca6a508664a6fd8082f074f4fe5a3894"
+checksum = "de055ac8efcf4f45ce25297e1fecd9e85b3510064b1aabc5cda37558b9e678bc"
 dependencies = [
  "log",
  "rapidhash",
@@ -5963,9 +5963,9 @@ dependencies = [
 
 [[package]]
 name = "repose-ui"
-version = "0.27.6"
+version = "0.27.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5c888c49698cc8a2ad11747d156b3af311d1c589a3f437dabaebf9c9eb50767"
+checksum = "71b53c05a941c316554931b4e9bd1c84a69a9f0defda5f1657b3476d5e326428"
 dependencies = [
  "log",
  "repose-core",
