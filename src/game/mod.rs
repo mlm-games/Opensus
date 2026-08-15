@@ -1,3 +1,4 @@
+mod assets;
 mod authority;
 mod interaction;
 mod kill_sabotage;
@@ -12,6 +13,7 @@ mod sabotage;
 mod tasks;
 mod vision;
 
+pub use assets::*;
 pub use authority::*;
 pub use interaction::*;
 pub use kill_sabotage::*;
@@ -59,6 +61,7 @@ impl Plugin for GamePlugin {
                 SabotagePlugin,
                 VisionPlugin,
                 NetworkingPlugin,
+                GameAssetsPlugin,
             ))
             .add_systems(OnEnter(AppState::InGame), setup_match)
             .add_systems(OnExit(AppState::InGame), cleanup_match)
@@ -129,6 +132,10 @@ fn tick_phase_timers(
     mut phase: ResMut<GamePhase>,
     mut meeting: ResMut<MeetingState>,
     cfg: Res<MatchConfig>,
+    players: Query<&Role, (With<Player>, With<Alive>)>,
+    tasks: Res<TaskBoard>,
+    mut save: ResMut<crate::save::SaveData>,
+    manager: Res<game_utils_bevy::save::SaveManager>,
 ) {
     match *phase {
         GamePhase::Meeting => {
@@ -148,13 +155,20 @@ fn tick_phase_timers(
         GamePhase::Results => {
             meeting.timer.tick(time.delta());
             if meeting.timer.just_finished() {
-                if matches!(*phase, GamePhase::GameOver { .. }) {
+                // An eject during Results may already have decided the match.
+                if let Some(crew_win) = meeting.pending_game_over.take() {
+                    apply_game_over(&mut phase, crew_win, &mut save, &manager);
+                    meeting.clear_for_play();
                     return;
                 }
-                if !matches!(*phase, GamePhase::GameOver { .. }) {
-                    *phase = GamePhase::Playing;
+                // Final safety check BEFORE returning to play.
+                if let Some(crew_win) = compute_win(&tasks, &players) {
+                    apply_game_over(&mut phase, crew_win, &mut save, &manager);
                     meeting.clear_for_play();
+                    return;
                 }
+                *phase = GamePhase::Playing;
+                meeting.clear_for_play();
             }
         }
         _ => {}
@@ -168,43 +182,57 @@ fn check_win_conditions(
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
 ) {
-    if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
+    if !matches!(*phase, GamePhase::Playing) {
         return;
     }
-    if matches!(
-        *phase,
-        GamePhase::Meeting | GamePhase::Voting | GamePhase::Results
-    ) {
-        return;
+    if let Some(crew_win) = compute_win(&tasks, &players) {
+        apply_game_over(&mut phase, crew_win, &mut save, &manager);
     }
+}
 
+pub fn compute_win(
+    tasks: &TaskBoard,
+    players: &Query<&Role, (With<Player>, With<Alive>)>,
+) -> Option<bool> {
     let mut crew = 0u32;
     let mut imps = 0u32;
-    for role in &players {
+    for role in players.iter() {
         match role {
             Role::Crewmate => crew += 1,
             Role::Impostor => imps += 1,
         }
     }
 
-    if tasks.completed >= tasks.total && tasks.total > 0 {
-        *phase = GamePhase::GameOver { crew_win: true };
-        save.games_played += 1;
-        save.crew_wins += 1;
-        let _ = manager.save(&*save);
+    if tasks.total > 0 && tasks.completed >= tasks.total {
+        return Some(true);
+    }
+    if imps == 0 && (crew + imps) > 0 {
+        return Some(true);
+    }
+    // Only impostor-majority when someone is still alive.
+    if (crew + imps) > 0 && imps >= crew {
+        return Some(false);
+    }
+    None
+}
+
+pub fn apply_game_over(
+    phase: &mut GamePhase,
+    crew_win: bool,
+    save: &mut crate::save::SaveData,
+    manager: &game_utils_bevy::save::SaveManager,
+) {
+    if matches!(*phase, GamePhase::GameOver { .. }) {
         return;
     }
-    if imps == 0 {
-        *phase = GamePhase::GameOver { crew_win: true };
-        save.games_played += 1;
-        save.crew_wins += 1;
-        let _ = manager.save(&*save);
-        return;
+    *phase = GamePhase::GameOver { crew_win };
+    save.games_played = save.games_played.saturating_add(1);
+    if crew_win {
+        save.crew_wins = save.crew_wins.saturating_add(1);
+    } else {
+        save.impostor_wins = save.impostor_wins.saturating_add(1);
     }
-    if imps >= crew {
-        *phase = GamePhase::GameOver { crew_win: false };
-        save.games_played += 1;
-        save.impostor_wins += 1;
-        let _ = manager.save(&*save);
+    if let Err(e) = manager.save(&*save) {
+        warn!("failed to save match result: {e}");
     }
 }

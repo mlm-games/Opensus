@@ -2,8 +2,8 @@ use bevy::input::gamepad::{Gamepad, GamepadRumbleRequest};
 use bevy::prelude::*;
 
 use super::{
-    Alive, Body, GamePhase, Ghost, LocalPlayer, MatchCleanup, MatchConfig, MeetingState, Player,
-    Role, make_ghost,
+    Alive, Body, CHARACTER_HEIGHT, GameAssets, GamePhase, Ghost, LocalPlayer, MatchCleanup,
+    MatchConfig, MeetingState, Player, Role, make_ghost,
 };
 use crate::app::{AppState, Paused};
 use game_utils_bevy::game_feel::GameFeel;
@@ -68,8 +68,10 @@ fn do_kill(
     cfg: Res<MatchConfig>,
     mut cd: ResMut<KillCooldown>,
     mut trauma: ResMut<Trauma>,
+    assets: Res<GameAssets>,
     actors: Query<(&Transform, &Role, &Player), With<Alive>>,
-    mut targets: Query<(Entity, &Player, &Transform, &Role, &mut Sprite), With<Alive>>,
+    targets: Query<(Entity, &Player, &Transform, &Role, Option<&Children>), With<Alive>>,
+    mut sprites: Query<&mut Sprite>,
     gamepads: Query<(Entity, &Gamepad)>,
     mut rumble: MessageWriter<GamepadRumbleRequest>,
 ) {
@@ -91,7 +93,7 @@ fn do_kill(
         }
 
         let actor_position = actor_transform.translation.truncate();
-        let mut best: Option<(Entity, Vec2, u64, String)> = None;
+        let mut best: Option<(Entity, Vec2, u64, String, u8)> = None;
         let mut best_d = cfg.kill_range;
         for (e, p, t, r, _) in &targets {
             if p.id == actor_id {
@@ -103,18 +105,16 @@ fn do_kill(
             let d = actor_position.distance(t.translation.truncate());
             if d < best_d {
                 best_d = d;
-                best = Some((e, t.translation.truncate(), p.id, p.name.clone()));
+                best = Some((e, t.translation.truncate(), p.id, p.name.clone(), p.color_index));
             }
         }
-        let Some((victim, pos, id, name)) = best else {
+        let Some((victim, pos, id, name, color_index)) = best else {
             continue;
         };
         cd.remaining = cfg.kill_cooldown;
 
-        let Ok((_, _, _, _, mut victim_sprite)) = targets.get_mut(victim) else {
-            continue;
-        };
-        make_ghost(&mut commands, victim, &mut victim_sprite);
+        let children = targets.get(victim).ok().and_then(|t| t.4);
+        make_ghost(&mut commands, victim, children, &mut sprites);
 
         commands.spawn((
             MatchCleanup,
@@ -124,11 +124,13 @@ fn do_kill(
                 reported: false,
             },
             Sprite {
-                color: Color::srgb(0.5, 0.05, 0.08),
-                custom_size: Some(Vec2::new(30.0, 14.0)),
+                image: assets.clothes_for(color_index),
+                color: Color::srgba(0.55, 0.1, 0.12, 0.95),
+                custom_size: Some(Vec2::new(CHARACTER_HEIGHT * 0.7, CHARACTER_HEIGHT * 0.35)),
                 ..default()
             },
-            Transform::from_xyz(pos.x, pos.y - 8.0, 3.0),
+            Transform::from_xyz(pos.x, pos.y - 10.0, 3.0)
+                .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)),
         ));
         ScreenEffects::add_trauma(&mut trauma, 0.55);
         GameFeel::rumble_controller(&mut rumble, &gamepads, 0.5, 0.9, 0.2);

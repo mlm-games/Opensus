@@ -146,6 +146,8 @@ pub struct SharedUi {
     pub sabotage_kind: Option<String>,
     pub sabotage_remaining: f32,
     pub lights_out: bool,
+    pub ui_lab_bg: Option<repose_core::ImageHandle>,
+    pub ui_background: Option<repose_core::ImageHandle>,
 }
 
 impl Default for SharedUi {
@@ -182,6 +184,8 @@ impl Default for SharedUi {
             sabotage_kind: None,
             sabotage_remaining: 0.0,
             lights_out: false,
+            ui_lab_bg: None,
+            ui_background: None,
         }
     }
 }
@@ -203,22 +207,28 @@ impl Plugin for AppPlugin {
                 shared: shared.clone(),
                 actions: actions.clone(),
             })
-            .add_plugins(ReposePlugin::with_settings(
-                ReposePluginSettings {
-                    clear_alpha: 0.0,
-                    compose_every_frame: true,
-                    msaa_samples: 1,
-                    overlay: true,
-                },
-                move |_s, _c| {
-                    let st = shared_ui.lock().unwrap().clone();
-                    let acts = actions_ui.clone();
-                    let overlay_rc = remember(OverlayHandle::new);
-                    let overlay = (*overlay_rc).clone();
-                    let root = menus::compose_root(overlay.clone(), st, acts);
-                    overlay.host(Modifier::new().fill_max_size(), root)
-                },
-            ))
+            .add_plugins(
+                ReposePlugin::with_settings(
+                    ReposePluginSettings {
+                        clear_alpha: 0.0,
+                        compose_every_frame: true,
+                        msaa_samples: 1,
+                        overlay: true,
+                    },
+                    move |_s, rc| {
+                        // One-time UI image upload. See SharedUi ui_lab_bg/background.
+                        ensure_ui_images(rc, &shared_ui);
+                        let st = shared_ui.lock().unwrap().clone();
+                        let acts = actions_ui.clone();
+                        let overlay_rc = remember(OverlayHandle::new);
+                        let overlay = (*overlay_rc).clone();
+                        let root = menus::compose_root(overlay.clone(), st, acts);
+                        overlay.host(Modifier::new().fill_max_size(), root)
+                    },
+                )
+                .with_font_bytes(include_bytes!("../assets/fonts/Fredoka-Regular.ttf"))
+                .with_font_bytes(include_bytes!("../assets/fonts/Fredoka-Bold.ttf")),
+            )
             .add_plugins((
                 ThemePlugin,
                 EcosystemPlugin::<AppState>::new(I18nPlugin::new(TRANSLATION_KEYS, LOCALES)),
@@ -274,6 +284,29 @@ fn setup_camera(mut commands: Commands) {
         },
         ScreenEffectSettings::default(),
     ));
+}
+
+fn ensure_ui_images(rc: &repose_core::RenderContext, shared: &Arc<Mutex<SharedUi>>) {
+    use std::sync::OnceLock;
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| {
+        let lab = rc.alloc_image_handle();
+        rc.set_image_encoded(
+            lab,
+            include_bytes!("../assets/sprites/ui/lab-bg.png").to_vec(),
+            true,
+        );
+        let bg = rc.alloc_image_handle();
+        rc.set_image_encoded(
+            bg,
+            include_bytes!("../assets/sprites/ui/background.png").to_vec(),
+            true,
+        );
+        if let Ok(mut ui) = shared.lock() {
+            ui.ui_lab_bg = Some(lab);
+            ui.ui_background = Some(bg);
+        }
+    });
 }
 
 fn sync_shared_ui(
@@ -423,10 +456,19 @@ fn process_ui_actions(
     for action in q.drain(..) {
         match action {
             UiAction::HostLobby => {
-                *runtime_mode = crate::game::RuntimeMode::Host;
-                *pending_network = crate::game::PendingNetworkStart::HostLocal {
-                    bind_addr: "127.0.0.1:5000".to_string(),
-                };
+                // Default path: local sandbox with bots.
+                #[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+                {
+                    *runtime_mode = crate::game::RuntimeMode::Host;
+                    *pending_network = crate::game::PendingNetworkStart::HostLocal {
+                        bind_addr: "127.0.0.1:5000".to_string(),
+                    };
+                }
+                #[cfg(not(all(feature = "networking-native", not(target_arch = "wasm32"))))]
+                {
+                    *runtime_mode = crate::game::RuntimeMode::Local;
+                    *pending_network = crate::game::PendingNetworkStart::None;
+                }
                 transition.begin_to_state(AppState::Loading);
             }
             UiAction::JoinLobby => {
@@ -466,6 +508,10 @@ fn process_ui_actions(
                 if let Some(ref mut gp) = game_phase {
                     **gp = GamePhase::None;
                 }
+                paused.0 = false;
+                *overlay = OverlayMenu::None;
+                pending_unpause.0 = None;
+                virtual_time.unpause();
                 transition.begin_to_state(AppState::Lobby);
             }
             UiAction::CycleColor => {
@@ -521,6 +567,9 @@ fn process_ui_actions(
             UiAction::QuitToTitle => {
                 *pending_network = crate::game::PendingNetworkStart::None;
                 *runtime_mode = crate::game::RuntimeMode::Local;
+                if let Some(ref mut gp) = game_phase {
+                    **gp = GamePhase::None;
+                }
                 paused.0 = false;
                 *overlay = OverlayMenu::None;
                 pending_unpause.0 = None;

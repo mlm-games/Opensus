@@ -28,6 +28,8 @@ pub struct MeetingState {
     /// FIXED: dedicated field instead of stashing the eject id under
     /// votes key 0 (which collided with real ids and double-applied).
     pub pending_eject: Option<u64>,
+    /// Set when an eject decides the match.
+    pub pending_game_over: Option<bool>,
 }
 
 impl MeetingState {
@@ -44,6 +46,7 @@ impl MeetingState {
         self.local_voted = false;
         self.result_text.clear();
         self.pending_eject = None;
+        self.pending_game_over = None;
         for (p, alive, _g) in players.iter() {
             self.options.push(VoteOption {
                 player_id: p.id,
@@ -60,6 +63,7 @@ impl MeetingState {
         self.local_voted = false;
         self.result_text.clear();
         self.pending_eject = None;
+        self.pending_game_over = None;
     }
 
     pub fn all_voted(&self) -> bool {
@@ -250,7 +254,8 @@ fn apply_eject_on_results(
     phase: Res<GamePhase>,
     mut meeting: ResMut<MeetingState>,
     mut commands: Commands,
-    mut q: Query<(Entity, &Player, &mut Sprite, &Role), With<Alive>>,
+    mut q: Query<(Entity, &Player, Option<&Children>, &Role), With<Alive>>,
+    mut sprites: Query<&mut Sprite>,
     mut trauma: ResMut<Trauma>,
 ) {
     if !matches!(*phase, GamePhase::Results) {
@@ -260,17 +265,34 @@ fn apply_eject_on_results(
     let Some(eid) = meeting.pending_eject.take() else {
         return;
     };
-    for (e, p, mut sprite, role) in &mut q {
+    for (e, p, children, role) in &mut q {
         if p.id != eid {
             continue;
         }
-        make_ghost(&mut commands, e, &mut sprite);
+        make_ghost(&mut commands, e, children, &mut sprites);
         ScreenEffects::add_trauma(&mut trauma, 0.5);
         meeting.result_text = if matches!(role, Role::Impostor) {
             format!("{} was an Impostor.", p.name)
         } else {
             format!("{} was not an Impostor.", p.name)
         };
+
+        let mut crew = 0u32;
+        let mut imps = 0u32;
+        for (e2, _p2, _, role2) in &q {
+            if e2 == e {
+                continue;
+            }
+            match role2 {
+                Role::Crewmate => crew += 1,
+                Role::Impostor => imps += 1,
+            }
+        }
+        if imps == 0 {
+            meeting.pending_game_over = Some(true);
+        } else if imps >= crew {
+            meeting.pending_game_over = Some(false);
+        }
         break;
     }
 }

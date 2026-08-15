@@ -43,41 +43,43 @@ fn setup_lobby(
     lobby.slots.clear();
     lobby.local_ready = false;
 
+    let push_local_host = |lobby: &mut LobbyState| {
+        lobby.is_host = true;
+        lobby.slots.push(LobbySlot {
+            id: 1,
+            name: save.player_name.clone(),
+            color_index: save.preferred_color_index,
+            ready: false,
+            is_local: true,
+            is_host: true,
+        });
+    };
+
+    let fill_bots = |lobby: &mut LobbyState| {
+        for i in 0..3u64 {
+            if lobby.slots.len() >= cfg.max_players as usize {
+                break;
+            }
+            lobby.slots.push(LobbySlot {
+                id: 10 + i,
+                name: format!("Agent-{}", i + 2),
+                color_index: ((save.preferred_color_index as u64 + 1 + i) % 12) as u8,
+                ready: true,
+                is_local: false,
+                is_host: false,
+            });
+        }
+    };
+
     match *mode {
         RuntimeMode::Local => {
-            lobby.is_host = true;
-            lobby.slots.push(LobbySlot {
-                id: 1,
-                name: save.player_name.clone(),
-                color_index: save.preferred_color_index,
-                ready: false,
-                is_local: true,
-                is_host: true,
-            });
-            for i in 0..3u64 {
-                if lobby.slots.len() >= cfg.max_players as usize {
-                    break;
-                }
-                lobby.slots.push(LobbySlot {
-                    id: 10 + i,
-                    name: format!("Agent-{}", i + 2),
-                    color_index: ((save.preferred_color_index as u64 + 1 + i) % 12) as u8,
-                    ready: true,
-                    is_local: false,
-                    is_host: false,
-                });
-            }
+            push_local_host(&mut lobby);
+            fill_bots(&mut lobby);
         }
         RuntimeMode::Host => {
-            lobby.is_host = true;
-            lobby.slots.push(LobbySlot {
-                id: 1,
-                name: save.player_name.clone(),
-                color_index: save.preferred_color_index,
-                ready: false,
-                is_local: true,
-                is_host: true,
-            });
+            // Always playable solo: bots fill until real clients replace them.
+            push_local_host(&mut lobby);
+            fill_bots(&mut lobby);
         }
         RuntimeMode::Client => {
             lobby.is_host = false;

@@ -66,7 +66,7 @@ fn process_interactions(
 
                 if station.progress >= 1.0 {
                     station.progress = 1.0;
-                    sprite.color = Color::srgb(0.2, 0.7, 0.3);
+                    sprite.color = Color::srgba(0.45, 0.75, 0.5, 0.9);
                     sabotage.fixes_done = sabotage.fixes_done.saturating_add(1);
                 }
 
@@ -114,7 +114,7 @@ fn process_interactions(
 
         station.progress = 1.0;
         station.done = true;
-        sprite.color = Color::srgb(0.2, 0.35, 0.25);
+        sprite.color = Color::srgba(0.55, 0.55, 0.55, 0.85);
 
         task_board.completed = task_board.completed.saturating_add(1);
 

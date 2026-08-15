@@ -3,6 +3,7 @@ use game_utils_bevy::transitions::Transition;
 
 use crate::app::AppState;
 use crate::asset_tracking::AssetsLoading;
+use crate::game::begin_game_asset_load;
 
 pub struct ScreensPlugin;
 impl Plugin for ScreensPlugin {
@@ -12,11 +13,12 @@ impl Plugin for ScreensPlugin {
         })
         .add_systems(
             OnEnter(AppState::Loading),
-            (|mut c: Commands, asset_server: Res<AssetServer>| {
-                c.insert_resource(LoadingTimer(Timer::from_seconds(0.5, TimerMode::Once)));
-                let handles = vec![asset_server.load::<Font>("fonts/default.ttf").untyped()];
-                c.insert_resource(AssetsLoading(handles));
-            },)
+            (
+                |mut c: Commands| {
+                    c.insert_resource(LoadingTimer(Timer::from_seconds(0.35, TimerMode::Once)));
+                },
+                begin_game_asset_load,
+            )
                 .chain(),
         )
         .add_systems(Update, (tick_splash, tick_loading));
@@ -49,10 +51,12 @@ fn tick_loading(
     let Some(mut timer) = timer else { return };
     let loaded = assets
         .map(|a| {
-            a.0.iter()
-                .all(|h| asset_server.is_loaded_with_dependencies(h))
+            !a.0.is_empty()
+                && a.0
+                    .iter()
+                    .all(|h| asset_server.is_loaded_with_dependencies(h))
         })
-        .unwrap_or(true);
+        .unwrap_or(false);
     if loaded && timer.0.tick(time.delta()).just_finished() {
         // Opensus: enter lobby after load (not straight InGame)
         tr.begin_to_state(AppState::Lobby);

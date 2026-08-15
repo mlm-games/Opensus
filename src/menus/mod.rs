@@ -17,7 +17,7 @@ use repose_ui::anim_ext::{
     AnimatedVisibility, AnimatedVisibilityConfig, EnterTransition, ExitTransition,
 };
 use repose_ui::overlay::OverlayHandle;
-use repose_ui::{Column, Row, Text as RText, TextStyle, ViewExt, ZStack};
+use repose_ui::{Column, Image, ImageExt, Row, Text as RText, TextStyle, ViewExt, ZStack};
 
 use crate::app::{AppState, OverlayMenu, SharedUi};
 use crate::game::{GamePhase, Role};
@@ -296,14 +296,23 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         }),
     ]);
 
-    Column(
-        Modifier::new()
-            .fill_max_size()
-            .justify_content(JustifyContent::CENTER)
-            .align_items(AlignItems::CENTER)
-            .background(p_bg()),
-    )
-    .child(Row(Modifier::new().gap(28.0).align_items(AlignItems::CENTER)).child((branding, menu)))
+    let bg = if let Some(h) = st.ui_lab_bg {
+        Image(Modifier::new().fill_max_size(), h).image_fit(repose_core::ImageFit::Cover)
+    } else {
+        Column(Modifier::new().fill_max_size().background(p_bg()))
+    };
+
+    ZStack(Modifier::new().fill_max_size()).child((
+        bg,
+        Column(
+            Modifier::new()
+                .fill_max_size()
+                .justify_content(JustifyContent::CENTER)
+                .align_items(AlignItems::CENTER)
+                .background(RColor::from_rgba(0, 0, 0, 120)),
+        )
+        .child(Row(Modifier::new().gap(28.0).align_items(AlignItems::CENTER)).child((branding, menu))),
+    ))
 }
 
 fn lobby_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {

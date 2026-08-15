@@ -1,7 +1,10 @@
 use bevy::prelude::*;
 use rand::seq::SliceRandom;
 
-use super::{Alive, GamePhase, LocalRole, MatchCleanup, MatchConfig, Role};
+use super::{
+    Alive, CHARACTER_HEIGHT, GameAssets, GamePhase, LocalRole, MatchCleanup, MatchConfig,
+    PlayerLayer, Role, bake_body_tint,
+};
 use crate::app::{AppState, Paused};
 use crate::game::RuntimeMode;
 use crate::game::lobby::LobbyState;
@@ -74,6 +77,8 @@ fn spawn_players_from_lobby(
     cfg: Res<MatchConfig>,
     save: Res<SaveData>,
     mode: Res<RuntimeMode>,
+    assets: Res<GameAssets>,
+    mut images: ResMut<Assets<Image>>,
     mut local_role: ResMut<LocalRole>,
     mut local_player_id: ResMut<LocalPlayerId>,
 ) {
@@ -139,6 +144,11 @@ fn spawn_players_from_lobby(
         }
         let color = PLAYER_COLORS[slot.color_index as usize % PLAYER_COLORS.len()];
         let pos = start_positions[i % start_positions.len()];
+
+        let body_handle = bake_body_tint(&mut images, &assets.body_for(slot.color_index), color)
+            .unwrap_or_else(|| assets.body_for(slot.color_index));
+        let clothes_handle = assets.clothes_for(slot.color_index);
+
         let mut e = commands.spawn((
             MatchCleanup,
             Player {
@@ -150,19 +160,40 @@ fn spawn_players_from_lobby(
             role,
             Alive,
             PlayerIntent::default(),
+            // Invisible root hit/logic anchor (layers are children).
             Sprite {
-                color,
-                custom_size: Some(Vec2::splat(28.0)),
+                color: Color::NONE,
+                custom_size: Some(Vec2::splat(1.0)),
                 ..default()
             },
             Transform::from_xyz(pos.x, pos.y, 10.0),
         ));
+
+        e.with_children(|c| {
+            c.spawn((
+                PlayerLayer,
+                Sprite {
+                    image: body_handle,
+                    custom_size: Some(Vec2::new(CHARACTER_HEIGHT * 0.75, CHARACTER_HEIGHT)),
+                    ..default()
+                },
+                Transform::from_xyz(0.0, 0.0, 0.1),
+            ));
+            c.spawn((
+                PlayerLayer,
+                Sprite {
+                    image: clothes_handle,
+                    custom_size: Some(Vec2::new(CHARACTER_HEIGHT * 0.75, CHARACTER_HEIGHT)),
+                    ..default()
+                },
+                Transform::from_xyz(0.0, 0.0, 0.2),
+            ));
+        });
+
         let id = e.id();
         if slot.is_local {
             e.insert(LocalPlayer);
-        } else if matches!(*mode, RuntimeMode::Local) {
-            // Sandbox bots only; remote clients are moved by the authoritative
-            // host from their sent intents.
+        } else if matches!(*mode, RuntimeMode::Local | RuntimeMode::Host) {
             e.insert(AiPlayer {
                 dir_timer: Timer::from_seconds(1.5, TimerMode::Repeating),
                 dir: Vec2::ZERO,

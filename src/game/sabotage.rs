@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use super::{Alive, GamePhase, LocalPlayer, MatchCleanup, MatchConfig, Player, Role};
+use super::{Alive, GameAssets, GamePhase, LocalPlayer, MatchCleanup, MatchConfig, Player, Role};
 use crate::app::{AppState, Paused};
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::transitions::Transition;
@@ -105,16 +105,16 @@ fn reset_sabotage(mut sabotage: ResMut<ActiveSabotage>, mut cooldown: ResMut<Sab
     cooldown.remaining = 0.0;
 }
 
-fn spawn_fix_stations(mut commands: Commands) {
+fn spawn_fix_stations(mut commands: Commands, assets: Res<GameAssets>) {
     let stations = [
-        (Vec2::new(-200.0, 80.0), SabotageKind::Oxygen),
-        (Vec2::new(200.0, 80.0), SabotageKind::Oxygen),
-        (Vec2::new(-200.0, -80.0), SabotageKind::Reactor),
-        (Vec2::new(200.0, -80.0), SabotageKind::Reactor),
-        (Vec2::new(0.0, 140.0), SabotageKind::Lights),
+        (Vec2::new(-200.0, 80.0), SabotageKind::Oxygen, assets.task_burner.clone()),
+        (Vec2::new(200.0, 80.0), SabotageKind::Oxygen, assets.task_burner.clone()),
+        (Vec2::new(-200.0, -80.0), SabotageKind::Reactor, assets.task_beaker.clone()),
+        (Vec2::new(200.0, -80.0), SabotageKind::Reactor, assets.task_beaker.clone()),
+        (Vec2::new(0.0, 140.0), SabotageKind::Lights, assets.task_flask.clone()),
     ];
 
-    for (position, kind) in stations {
+    for (position, kind, image) in stations {
         commands.spawn((
             MatchCleanup,
             SabotageFixStation {
@@ -122,7 +122,8 @@ fn spawn_fix_stations(mut commands: Commands) {
                 progress: 0.0,
             },
             Sprite {
-                color: Color::srgba(0.3, 0.3, 0.9, 0.0),
+                image,
+                color: Color::srgba(1.0, 1.0, 1.0, 0.0),
                 custom_size: Some(Vec2::splat(18.0)),
                 ..default()
             },
@@ -216,9 +217,9 @@ fn apply_sabotage(
             station.progress = 0.0;
 
             sprite.color = if station.kind == action.kind {
-                Color::srgb(0.9, 0.5, 0.1)
+                Color::srgba(1.0, 0.6, 0.15, 1.0)
             } else {
-                Color::srgba(0.3, 0.3, 0.9, 0.0)
+                Color::srgba(1.0, 1.0, 1.0, 0.0)
             };
         }
 
@@ -257,32 +258,22 @@ fn tick_sabotage(
 }
 
 fn check_sabotage_loss(
-    sabotage: Res<ActiveSabotage>,
     mut phase: ResMut<GamePhase>,
+    sabotage: Res<ActiveSabotage>,
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
 ) {
-    if matches!(*phase, GamePhase::GameOver { .. }) {
+    if !matches!(*phase, GamePhase::Playing) {
         return;
     }
-
     if !sabotage.is_critical() || sabotage.is_fixed() {
         return;
     }
-
     let expired = sabotage.timer.as_ref().is_some_and(Timer::just_finished);
-
     if !expired {
         return;
     }
-
-    *phase = GamePhase::GameOver { crew_win: false };
-    save.games_played = save.games_played.saturating_add(1);
-    save.impostor_wins = save.impostor_wins.saturating_add(1);
-
-    if let Err(error) = manager.save(&*save) {
-        warn!("Unable to save sabotage result: {error}");
-    }
+    super::apply_game_over(&mut phase, false, &mut save, &manager);
 }
 
 fn clear_fixed_sabotage(
@@ -297,6 +288,6 @@ fn clear_fixed_sabotage(
 
     for (mut station, mut sprite) in &mut stations {
         station.progress = 0.0;
-        sprite.color = Color::srgba(0.3, 0.3, 0.9, 0.0);
+        sprite.color = Color::srgba(1.0, 1.0, 1.0, 0.0);
     }
 }
