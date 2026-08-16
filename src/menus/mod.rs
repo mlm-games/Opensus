@@ -155,12 +155,14 @@ pub fn compose_root(
             Column(
                 Modifier::new()
                     .fill_max_size()
-                    .background(RColor::from_rgba(0, 0, 0, fade_a)),
+                    .background(RColor::from_rgba(0, 0, 0, fade_a))
+                    .hit_passthrough(),
             ),
             Column(
                 Modifier::new()
                     .fill_max_size()
-                    .background(RColor::from_rgba(flash_a, flash_a, flash_a, flash_a)),
+                    .background(RColor::from_rgba(flash_a, flash_a, flash_a, flash_a))
+                    .hit_passthrough(),
             ),
         ))
     } else {
@@ -279,9 +281,11 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .align_items(AlignItems::STRETCH),
     )
     .child([
-        mk_button(&t(tr, "start-game", "Play Offline"), p_cyan_dark(), move || {
-            push(&h0, UiAction::PlayOffline)
-        }),
+        mk_button(
+            &t(tr, "start-game", "Play Offline"),
+            p_cyan_dark(),
+            move || push(&h0, UiAction::PlayOffline),
+        ),
         mk_button(&t(tr, "host-game", "Host Game"), p_button(), move || {
             push(&h1, UiAction::HostLobby)
         }),
@@ -316,7 +320,9 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 .align_items(AlignItems::CENTER)
                 .background(RColor::from_rgba(0, 0, 0, 120)),
         )
-        .child(Row(Modifier::new().gap(28.0).align_items(AlignItems::CENTER)).child((branding, menu))),
+        .child(
+            Row(Modifier::new().gap(28.0).align_items(AlignItems::CENTER)).child((branding, menu)),
+        ),
     ))
 }
 
@@ -463,13 +469,13 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         .size(16.0)
         .color(p_green()),
         if matches!(st.my_role, Some(Role::Impostor)) {
-RText(format!(
-            "{}: {:.0}s  (Q)",
-            t(tr, "kill-cooldown", "Kill CD"),
-            st.kill_cd
-        ))
-        .size(16.0)
-        .color(col(220, 160, 160))
+            RText(format!(
+                "{}: {:.0}s  (Q)",
+                t(tr, "kill-cooldown", "Kill CD"),
+                st.kill_cd
+            ))
+            .size(16.0)
+            .color(col(220, 160, 160))
         } else {
             spacer(1.0)
         },
@@ -540,7 +546,11 @@ fn meeting_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .fill_max_size()
             .justify_content(JustifyContent::CENTER)
             .align_items(AlignItems::CENTER)
-            .background(RColor::from_rgba(0, 0, 0, 200)),
+            .background(RColor::from_rgba(0, 0, 0, 200))
+            // Above world/exit layers; during the exit animation the
+            // closing meeting must never sit on top of this modal.
+            .z_index(50.0)
+            .input_blocker(),
     )
     .child(
         Column(
@@ -591,7 +601,9 @@ fn gameover_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .fill_max_size()
             .justify_content(JustifyContent::CENTER)
             .align_items(AlignItems::CENTER)
-            .background(RColor::from_rgba(0, 0, 0, 210)),
+            .background(RColor::from_rgba(0, 0, 0, 210))
+            .z_index(100.0)
+            .input_blocker(),
     )
     .child(
         Column(

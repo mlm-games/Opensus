@@ -149,7 +149,7 @@ opt-level = "s"
 strip = "debuginfo"
 
 # [patch.crates-io]
-# repose-core = { path = "../../../Repos/repose/crates/repose-core" }
-# repose-ui = { path = "../../../Repos/repose/crates/repose-ui" }
-# repose-material = { path = "../../../Repos/repose/crates/repose-material" }
-# repose-render-wgpu = { path = "../../../Repos/repose/crates/repose-render-wgpu" }
+# repose-core = { path = "../../Repos/repose/crates/repose-core" }
+# repose-ui = { path = "../../Repos/repose/crates/repose-ui" }
+# repose-material = { path = "../../Repos/repose/crates/repose-material" }
+# repose-render-wgpu = { path = "../../Repos/repose/crates/repose-render-wgpu" }

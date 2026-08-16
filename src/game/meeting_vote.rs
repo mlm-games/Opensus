@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use super::{
     ActiveSabotage, Alive, EmergenciesLeft, EmergencyButton, GamePhase, Ghost, LocalPlayerId,
-    MatchConfig, Player, Role, make_ghost,
+    MatchConfig, Player,
 };
 use crate::app::{AppState, Paused};
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
@@ -28,8 +28,6 @@ pub struct MeetingState {
     /// FIXED: dedicated field instead of stashing the eject id under
     /// votes key 0 (which collided with real ids and double-applied).
     pub pending_eject: Option<u64>,
-    /// Set when an eject decides the match.
-    pub pending_game_over: Option<bool>,
 }
 
 impl MeetingState {
@@ -46,7 +44,6 @@ impl MeetingState {
         self.local_voted = false;
         self.result_text.clear();
         self.pending_eject = None;
-        self.pending_game_over = None;
         for (p, alive, _g) in players.iter() {
             self.options.push(VoteOption {
                 player_id: p.id,
@@ -63,12 +60,21 @@ impl MeetingState {
         self.local_voted = false;
         self.result_text.clear();
         self.pending_eject = None;
-        self.pending_game_over = None;
     }
 
+    /// True once every living option has voted. An empty living list resolves
+    /// immediately so a meeting can never deadlock.
     pub fn all_voted(&self) -> bool {
-        let living = self.options.iter().filter(|o| !o.dead).count();
-        living > 0 && self.votes.len() >= living
+        let living_ids: Vec<u64> = self
+            .options
+            .iter()
+            .filter(|o| !o.dead)
+            .map(|o| o.player_id)
+            .collect();
+        if living_ids.is_empty() {
+            return true;
+        }
+        living_ids.iter().all(|id| self.votes.contains_key(id))
     }
 
     pub fn resolve_votes(&mut self, phase: &mut GamePhase, results_time: f32) {
@@ -120,12 +126,9 @@ pub struct MeetingVotePlugin;
 
 impl Plugin for MeetingVotePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            OnEnter(AppState::InGame),
-            |mut m: ResMut<MeetingState>| {
-                m.clear_for_play();
-            },
-        )
+        app.add_systems(OnEnter(AppState::InGame), |mut m: ResMut<MeetingState>| {
+            m.clear_for_play();
+        })
         // Local input only (all modes).
         .add_systems(
             Update,
@@ -135,11 +138,10 @@ impl Plugin for MeetingVotePlugin {
                 .run_if(|p: Res<Paused>| !p.0)
                 .run_if(|t: Res<Transition<AppState>>| !t.block_input),
         )
-        // Authority resolves commands and ejects.
+        // Authority resolves commands (eject lives in the GamePlugin chain).
         .add_systems(
             Update,
-            (handle_meeting_commands, apply_eject_on_results)
-                .chain()
+            handle_meeting_commands
                 .in_set(super::GameSimSet::Resolve)
                 .run_if(in_state(AppState::InGame))
                 .run_if(|p: Res<Paused>| !p.0)
@@ -181,24 +183,21 @@ fn handle_meeting_commands(
                 if !matches!(*phase, GamePhase::Playing) || sabotage.is_critical() {
                     continue;
                 }
-                let Some((_, mut left)) = living
-                    .iter_mut()
-                    .find(|(p, _)| p.id == *actor_id)
-                else {
+                let Some((_, mut left)) = living.iter_mut().find(|(p, _)| p.id == *actor_id) else {
                     continue;
                 };
                 if left.0 == 0 {
                     continue;
                 }
                 // Map-gated: the caller must stand at the emergency button.
-                let Some((_, position)) = positions
-                    .iter()
-                    .find(|(p, _)| p.id == *actor_id)
-                else {
+                let Some((_, position)) = positions.iter().find(|(p, _)| p.id == *actor_id) else {
                     continue;
                 };
                 let near_button = emergency_buttons.iter().any(|bt| {
-                    position.translation.truncate().distance(bt.translation.truncate())
+                    position
+                        .translation
+                        .truncate()
+                        .distance(bt.translation.truncate())
                         <= cfg.interact_range
                 });
                 if !near_button {
@@ -275,49 +274,12 @@ fn bot_votes(
     }
 }
 
-fn apply_eject_on_results(
-    phase: Res<GamePhase>,
-    mut meeting: ResMut<MeetingState>,
-    mut commands: Commands,
-    mut q: Query<(Entity, &Player, Option<&Children>, &Role), With<Alive>>,
-    mut sprites: Query<&mut Sprite>,
-    mut trauma: ResMut<Trauma>,
+/// Fill votes for every living non-local player that hasn't voted yet.
+/// Safe to call every frame during Voting (idempotent via the votes map).
+pub fn bot_votes_public(
+    meeting: &mut MeetingState,
+    players: &Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
+    local_id: u64,
 ) {
-    if !matches!(*phase, GamePhase::Results) {
-        return;
-    }
-    // take() guarantees this fires exactly once per resolution.
-    let Some(eid) = meeting.pending_eject.take() else {
-        return;
-    };
-    for (e, p, children, role) in &mut q {
-        if p.id != eid {
-            continue;
-        }
-        make_ghost(&mut commands, e, children, &mut sprites);
-        ScreenEffects::add_trauma(&mut trauma, 0.5);
-        meeting.result_text = if matches!(role, Role::Impostor) {
-            format!("{} was an Impostor.", p.name)
-        } else {
-            format!("{} was not an Impostor.", p.name)
-        };
-
-        let mut crew = 0u32;
-        let mut imps = 0u32;
-        for (e2, _p2, _, role2) in &q {
-            if e2 == e {
-                continue;
-            }
-            match role2 {
-                Role::Crewmate => crew += 1,
-                Role::Impostor => imps += 1,
-            }
-        }
-        if imps == 0 {
-            meeting.pending_game_over = Some(true);
-        } else if imps >= crew {
-            meeting.pending_game_over = Some(false);
-        }
-        break;
-    }
+    bot_votes(meeting, players, local_id);
 }

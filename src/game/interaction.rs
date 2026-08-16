@@ -138,7 +138,7 @@ fn process_interactions(
     mut sabotage: ResMut<ActiveSabotage>,
     mut task_board: ResMut<TaskBoard>,
     living: Query<(&Player, &Role, &PlayerIntent, &Transform), With<Alive>>,
-    ghosts: Query<(&Player, &PlayerIntent, &Transform), (With<Ghost>, Without<Alive>)>,
+    ghosts: Query<(&Player, &Role, &PlayerIntent, &Transform), (With<Ghost>, Without<Alive>)>,
     mut fix_stations: Query<
         (Entity, &mut SabotageFixStation, &mut Sprite, &Transform),
         Without<TaskStation>,
@@ -201,9 +201,9 @@ fn process_interactions(
         try_complete_task(dt, &config, &mut commands, &mut task_board, &mut task_stations, player_position);
     }
 
-    // Ghosts keep completing tasks (Among Us style); no sabotage fixes.
-    for (_player, intent, player_transform) in &ghosts {
-        if !intent.interact {
+    // Ghosts keep completing tasks (Among Us style); crewmate ghosts only.
+    for (_player, role, intent, player_transform) in &ghosts {
+        if !intent.interact || !matches!(role, Role::Crewmate) {
             continue;
         }
         try_complete_task(

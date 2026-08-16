@@ -548,6 +548,7 @@ fn process_ui_actions(
                 }
             }
             UiAction::PlayAgain => {
+                *pending_network = crate::game::PendingNetworkStart::None;
                 if let Some(ref mut gp) = game_phase {
                     **gp = GamePhase::None;
                 }

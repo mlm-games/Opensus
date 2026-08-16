@@ -266,6 +266,10 @@ fn check_sabotage_loss(
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
 ) {
+    if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
+        return;
+    }
+    // Critical sabotage only resolves during open play (meetings cancel it).
     if !matches!(*phase, GamePhase::Playing) {
         return;
     }

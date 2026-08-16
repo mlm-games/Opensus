@@ -31,6 +31,7 @@ pub use vision::*;
 use bevy::prelude::*;
 
 use crate::app::{AppState, Paused};
+use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::transitions::Transition;
 
 pub struct GamePlugin;
@@ -78,20 +79,18 @@ impl Plugin for GamePlugin {
             .add_systems(OnExit(AppState::InGame), cleanup_match)
             .add_systems(
                 Update,
-                (cleanup_bodies_on_meeting, tick_phase_timers)
+                (
+                    cleanup_bodies_on_meeting,
+                    tick_phase_timers,
+                    apply_pending_eject,
+                    ensure_bot_votes,
+                    check_win_conditions,
+                )
                     .chain()
                     .in_set(GameSimSet::Phase)
                     .run_if(in_state(AppState::InGame))
                     .run_if(|paused: Res<Paused>| !paused.0)
                     .run_if(|transition: Res<Transition<AppState>>| !transition.block_input)
-                    .run_if(has_authority),
-            )
-            .add_systems(
-                Update,
-                check_win_conditions
-                    .in_set(GameSimSet::Win)
-                    .run_if(in_state(AppState::InGame))
-                    .run_if(|paused: Res<Paused>| !paused.0)
                     .run_if(has_authority),
             );
     }
@@ -157,11 +156,12 @@ fn tick_phase_timers(
     mut phase: ResMut<GamePhase>,
     mut meeting: ResMut<MeetingState>,
     cfg: Res<MatchConfig>,
-    players: Query<&Role, (With<Player>, With<Alive>)>,
-    tasks: Res<TaskBoard>,
-    mut save: ResMut<crate::save::SaveData>,
-    manager: Res<game_utils_bevy::save::SaveManager>,
 ) {
+    // Never advance meeting timers after the match is decided.
+    if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
+        return;
+    }
+
     match *phase {
         GamePhase::Meeting => {
             meeting.timer.tick(time.delta());
@@ -180,24 +180,62 @@ fn tick_phase_timers(
         GamePhase::Results => {
             meeting.timer.tick(time.delta());
             if meeting.timer.just_finished() {
-                // An eject during Results may already have decided the match.
-                if let Some(crew_win) = meeting.pending_game_over.take() {
-                    apply_game_over(&mut phase, crew_win, &mut save, &manager);
-                    meeting.clear_for_play();
-                    return;
-                }
-                // Final safety check BEFORE returning to play.
-                if let Some(crew_win) = compute_win(&tasks, &players) {
-                    apply_game_over(&mut phase, crew_win, &mut save, &manager);
-                    meeting.clear_for_play();
-                    return;
-                }
                 *phase = GamePhase::Playing;
                 meeting.clear_for_play();
             }
         }
         _ => {}
     }
+}
+
+fn apply_pending_eject(
+    mut meeting: ResMut<MeetingState>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &Player, Option<&Children>, &Role), With<Alive>>,
+    mut sprites: Query<&mut Sprite>,
+    mut trauma: ResMut<Trauma>,
+) {
+    let Some(eid) = meeting.pending_eject.take() else {
+        return;
+    };
+    for (e, p, children, role) in &mut q {
+        if p.id != eid {
+            continue;
+        }
+        make_ghost(&mut commands, e, children, &mut sprites);
+        ScreenEffects::add_trauma(&mut trauma, 0.5);
+        meeting.result_text = if matches!(role, Role::Impostor) {
+            format!("{} was an Impostor.", p.name)
+        } else {
+            format!("{} was not an Impostor.", p.name)
+        };
+        break;
+    }
+}
+
+fn ensure_bot_votes(
+    phase: Res<GamePhase>,
+    mut meeting: ResMut<MeetingState>,
+    players: Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
+    local_id: Res<LocalPlayerId>,
+) {
+    if !matches!(*phase, GamePhase::Voting) {
+        return;
+    }
+    let skip = local_id.0.unwrap_or(u64::MAX);
+    crate::game::meeting_vote::bot_votes_public(&mut meeting, &players, skip);
+}
+
+fn living_counts(players: &Query<&Role, (With<Player>, With<Alive>)>) -> (u32, u32) {
+    let mut crew = 0u32;
+    let mut imps = 0u32;
+    for role in players.iter() {
+        match role {
+            Role::Crewmate => crew += 1,
+            Role::Impostor => imps += 1,
+        }
+    }
+    (crew, imps)
 }
 
 fn check_win_conditions(
@@ -207,38 +245,23 @@ fn check_win_conditions(
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
 ) {
-    if !matches!(*phase, GamePhase::Playing | GamePhase::Results) {
+    if !matches!(*phase, GamePhase::Playing) {
         return;
     }
-    if let Some(crew_win) = compute_win(&tasks, &players) {
-        apply_game_over(&mut phase, crew_win, &mut save, &manager);
-    }
-}
 
-pub fn compute_win(
-    tasks: &TaskBoard,
-    players: &Query<&Role, (With<Player>, With<Alive>)>,
-) -> Option<bool> {
-    let mut crew = 0u32;
-    let mut imps = 0u32;
-    for role in players.iter() {
-        match role {
-            Role::Crewmate => crew += 1,
-            Role::Impostor => imps += 1,
-        }
-    }
+    let (crew, imps) = living_counts(&players);
 
     if tasks.total > 0 && tasks.completed >= tasks.total {
-        return Some(true);
+        apply_game_over(&mut phase, true, &mut save, &manager);
+        return;
     }
-    if imps == 0 && (crew + imps) > 0 {
-        return Some(true);
+    if imps == 0 {
+        apply_game_over(&mut phase, true, &mut save, &manager);
+        return;
     }
-    // Only impostor-majority when someone is still alive.
-    if (crew + imps) > 0 && imps >= crew {
-        return Some(false);
+    if imps >= crew {
+        apply_game_over(&mut phase, false, &mut save, &manager);
     }
-    None
 }
 
 pub fn apply_game_over(
