@@ -2,19 +2,14 @@ use bevy::input::gamepad::{Gamepad, GamepadRumbleRequest};
 use bevy::prelude::*;
 
 use super::{
-    Alive, Body, CHARACTER_HEIGHT, GameAssets, GamePhase, Ghost, LocalPlayer, MatchCleanup,
-    MatchConfig, MeetingState, Player, Role, make_ghost,
+    Alive, Body, CHARACTER_HEIGHT, GameAssets, GamePhase, Ghost, KillCooldownLeft, LocalPlayer,
+    MatchCleanup, MatchConfig, MeetingState, Player, Role, make_ghost,
 };
 use crate::app::{AppState, Paused};
 use game_utils_bevy::game_feel::GameFeel;
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::transitions::Transition;
 use game_utils_bevy::vfx::VfxSpawner;
-
-#[derive(Resource, Default)]
-pub struct KillCooldown {
-    pub remaining: f32,
-}
 
 #[derive(Message, Clone, Copy)]
 pub struct KillRequest {
@@ -29,21 +24,35 @@ pub struct ReportBody {
 pub struct KillSabotagePlugin;
 impl Plugin for KillSabotagePlugin {
     fn build(&self, app: &mut App) {
+        // INPUT: every peer (local device), including clients.
         app.add_systems(
             Update,
-            (tick_kill_cd, kill_input, do_kill, report_input, do_report)
+            (kill_input, report_input)
                 .chain()
+                .in_set(super::GameSimSet::Input)
                 .run_if(in_state(AppState::InGame))
                 .run_if(|p: Res<Paused>| !p.0)
                 .run_if(|t: Res<Transition<AppState>>| !t.block_input)
+                .run_if(|ph: Res<GamePhase>| matches!(*ph, GamePhase::Playing)),
+        )
+        // RESOLVE: authority only.
+        .add_systems(
+            Update,
+            (tick_kill_cds, do_kill, do_report)
+                .chain()
+                .in_set(super::GameSimSet::Resolve)
+                .run_if(in_state(AppState::InGame))
+                .run_if(|p: Res<Paused>| !p.0)
                 .run_if(|ph: Res<GamePhase>| matches!(*ph, GamePhase::Playing))
                 .run_if(super::has_authority),
         );
     }
 }
 
-fn tick_kill_cd(time: Res<Time>, mut cd: ResMut<KillCooldown>) {
-    cd.remaining = (cd.remaining - time.delta_secs()).max(0.0);
+fn tick_kill_cds(time: Res<Time>, mut q: Query<&mut KillCooldownLeft>) {
+    for mut cd in &mut q {
+        cd.0 = (cd.0 - time.delta_secs()).max(0.0);
+    }
 }
 
 fn kill_input(
@@ -66,10 +75,9 @@ fn do_kill(
     mut requests: MessageReader<KillRequest>,
     mut commands: Commands,
     cfg: Res<MatchConfig>,
-    mut cd: ResMut<KillCooldown>,
     mut trauma: ResMut<Trauma>,
     assets: Res<GameAssets>,
-    actors: Query<(&Transform, &Role, &Player), With<Alive>>,
+    mut actors: Query<(&Transform, &Role, &Player, &mut KillCooldownLeft), With<Alive>>,
     targets: Query<(Entity, &Player, &Transform, &Role, Option<&Children>), With<Alive>>,
     mut sprites: Query<&mut Sprite>,
     gamepads: Query<(Entity, &Gamepad)>,
@@ -78,17 +86,14 @@ fn do_kill(
     for request in requests.read() {
         let actor_id = request.actor_id;
 
-        if cd.remaining > 0.0 {
-            continue;
-        }
-
-        let Some((actor_transform, actor_role, _)) =
-            actors.iter().find(|(_, _, player)| player.id == actor_id)
+        let Some((actor_transform, actor_role, _, mut cd)) = actors
+            .iter_mut()
+            .find(|(_, _, player, _)| player.id == actor_id)
         else {
             continue;
         };
 
-        if !matches!(actor_role, Role::Impostor) {
+        if cd.0 > 0.0 || !matches!(actor_role, Role::Impostor) {
             continue;
         }
 
@@ -111,7 +116,7 @@ fn do_kill(
         let Some((victim, pos, id, name, color_index)) = best else {
             continue;
         };
-        cd.remaining = cfg.kill_cooldown;
+        cd.0 = cfg.kill_cooldown;
 
         let children = targets.get(victim).ok().and_then(|t| t.4);
         make_ghost(&mut commands, victim, children, &mut sprites);

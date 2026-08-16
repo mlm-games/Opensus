@@ -42,7 +42,6 @@ impl Plugin for GamePlugin {
             .init_resource::<MatchConfig>()
             .init_resource::<LobbyState>()
             .init_resource::<TaskBoard>()
-            .init_resource::<KillCooldown>()
             .init_resource::<LocalRole>()
             .init_resource::<LocalPlayerId>()
             .init_resource::<MeetingState>()
@@ -50,6 +49,18 @@ impl Plugin for GamePlugin {
             .add_message::<MeetingCommand>()
             .add_message::<KillRequest>()
             .add_message::<ReportBody>()
+            .add_message::<SabotageAction>()
+            .configure_sets(
+                Update,
+                (
+                    GameSimSet::Input,
+                    GameSimSet::Resolve,
+                    GameSimSet::Phase,
+                    GameSimSet::Win,
+                )
+                    .chain()
+                    .run_if(in_state(AppState::InGame)),
+            )
             .add_plugins((
                 LobbyPlugin,
                 PlayerPlugin,
@@ -67,38 +78,52 @@ impl Plugin for GamePlugin {
             .add_systems(OnExit(AppState::InGame), cleanup_match)
             .add_systems(
                 Update,
-                (
-                    cleanup_bodies_on_meeting,
-                    tick_phase_timers,
-                    check_win_conditions,
-                )
+                (cleanup_bodies_on_meeting, tick_phase_timers)
                     .chain()
+                    .in_set(GameSimSet::Phase)
                     .run_if(in_state(AppState::InGame))
                     .run_if(|paused: Res<Paused>| !paused.0)
                     .run_if(|transition: Res<Transition<AppState>>| !transition.block_input)
                     .run_if(has_authority),
+            )
+            .add_systems(
+                Update,
+                check_win_conditions
+                    .in_set(GameSimSet::Win)
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(|paused: Res<Paused>| !paused.0)
+                    .run_if(has_authority),
             );
     }
+}
+
+/// Authority world-mutating step ordering inside a running match.
+///
+/// `Input` collects every peer's intent (all modes, no authority gate).
+/// `Resolve` applies intents/actions on the authority. `Phase` advances
+/// timers and transitions. `Win` resolves whether the match is over.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum GameSimSet {
+    Input,
+    Resolve,
+    Phase,
+    Win,
 }
 
 #[derive(Component)]
 pub struct MatchCleanup;
 
 fn setup_match(
-    mut commands: Commands,
     mut phase: ResMut<GamePhase>,
     cfg: Res<MatchConfig>,
     mut tasks: ResMut<TaskBoard>,
-    mut kill_cd: ResMut<KillCooldown>,
     mut meeting: ResMut<MeetingState>,
 ) {
     *phase = GamePhase::Playing;
     tasks.completed = 0;
     tasks.total = cfg.tasks_to_win;
-    kill_cd.remaining = 0.0;
     *meeting = MeetingState::default();
     // Map + players spawned by MapPlugin / PlayerPlugin OnEnter
-    let _ = &mut commands;
 }
 
 fn cleanup_match(mut commands: Commands, q: Query<Entity, With<MatchCleanup>>) {
@@ -182,7 +207,7 @@ fn check_win_conditions(
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
 ) {
-    if !matches!(*phase, GamePhase::Playing) {
+    if !matches!(*phase, GamePhase::Playing | GamePhase::Results) {
         return;
     }
     if let Some(crew_win) = compute_win(&tasks, &players) {

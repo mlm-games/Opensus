@@ -84,14 +84,17 @@ impl Plugin for SabotagePlugin {
             .add_systems(OnExit(AppState::InGame), reset_sabotage)
             .add_systems(
                 Update,
-                (
-                    sabotage_input,
-                    apply_sabotage,
-                    tick_sabotage,
-                    check_sabotage_loss,
-                    clear_fixed_sabotage,
-                )
+                sabotage_input
+                    .in_set(super::GameSimSet::Input)
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(|paused: Res<Paused>| !paused.0)
+                    .run_if(|transition: Res<Transition<AppState>>| !transition.block_input),
+            )
+            .add_systems(
+                Update,
+                (apply_sabotage, tick_sabotage, check_sabotage_loss, clear_fixed_sabotage)
                     .chain()
+                    .in_set(super::GameSimSet::Resolve)
                     .run_if(in_state(AppState::InGame))
                     .run_if(|paused: Res<Paused>| !paused.0)
                     .run_if(|transition: Res<Transition<AppState>>| !transition.block_input)

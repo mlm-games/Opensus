@@ -12,6 +12,11 @@ pub struct Room {
     pub name: &'static str,
 }
 
+/// Map-mounted emergency call button. Emergencies may only be called by a
+/// living player standing within `interact_range` of one of these.
+#[derive(Component)]
+pub struct EmergencyButton;
+
 pub struct MapPlugin;
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
@@ -113,6 +118,18 @@ fn spawn_map(mut commands: Commands, assets: Res<GameAssets>) {
             Transform::from_xyz(x, y, 3.0),
         ));
     }
+
+    // Emergency button in the cafeteria (map-gated "F" in handle_meeting_commands).
+    commands.spawn((
+        MatchCleanup,
+        EmergencyButton,
+        Sprite {
+            color: Color::srgb(0.85, 0.25, 0.2),
+            custom_size: Some(Vec2::splat(26.0)),
+            ..default()
+        },
+        Transform::from_xyz(0.0, -40.0, 6.0),
+    ));
 
     // Bounds
     for y in [320.0, -320.0] {

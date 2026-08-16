@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 
 use super::Role;
 
+/// World-space movement bounds (half extents). Kept in sync with the map.
+pub const MAP_BOUNDS: Vec2 = Vec2::new(520.0, 300.0);
+
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum GamePhase {
     #[default]
@@ -39,11 +42,22 @@ pub struct MatchConfig {
     pub oxygen_time: f32,
     pub reactor_time: f32,
     pub sabotage_fix_time: f32,
+    /// Reactor: both consoles must be held within this window of each other,
+    /// i.e. two crewmates fixing at once — a solo player cannot skip.
+    pub reactor_sync_window: f32,
 
     pub player_speed: f32,
+    /// Ghost movement speed multiplier.
+    pub ghost_speed_mul: f32,
 
     /// Camera exponential-follow sharpness, independent of frame rate.
     pub camera_follow_sharpness: f32,
+
+    /// Offline bots.
+    pub bot_count: u8,
+    pub bot_task_weight: f32,
+    pub bot_report_range: f32,
+    pub bot_kill_aggression: f32,
 }
 
 impl Default for MatchConfig {
@@ -70,9 +84,16 @@ impl Default for MatchConfig {
             oxygen_time: 30.0,
             reactor_time: 45.0,
             sabotage_fix_time: 2.5,
+            reactor_sync_window: 0.75,
 
             player_speed: 220.0,
+            ghost_speed_mul: 1.15,
             camera_follow_sharpness: 9.0,
+
+            bot_count: 3,
+            bot_task_weight: 0.65,
+            bot_report_range: 70.0,
+            bot_kill_aggression: 0.55,
         }
     }
 }

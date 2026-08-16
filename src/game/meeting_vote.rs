@@ -3,7 +3,8 @@ use rand::prelude::IndexedRandom;
 use std::collections::HashMap;
 
 use super::{
-    ActiveSabotage, Alive, GamePhase, Ghost, LocalPlayer, MatchConfig, Player, Role, make_ghost,
+    ActiveSabotage, Alive, EmergenciesLeft, EmergencyButton, GamePhase, Ghost, LocalPlayerId,
+    MatchConfig, Player, Role, make_ghost,
 };
 use crate::app::{AppState, Paused};
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
@@ -24,7 +25,6 @@ pub struct MeetingState {
     pub votes: HashMap<u64, Option<u64>>, // voter -> Some(target) | None = skip
     pub local_voted: bool,
     pub result_text: String,
-    pub emergencies_left: u8,
     /// FIXED: dedicated field instead of stashing the eject id under
     /// votes key 0 (which collided with real ids and double-applied).
     pub pending_eject: Option<u64>,
@@ -111,9 +111,9 @@ impl MeetingState {
 
 #[derive(Message, Clone)]
 pub enum MeetingCommand {
-    Emergency,
-    Vote(u64),
-    Skip,
+    Emergency { actor_id: u64 },
+    Vote { voter_id: u64, target: u64 },
+    Skip { voter_id: u64 },
 }
 
 pub struct MeetingVotePlugin;
@@ -122,19 +122,25 @@ impl Plugin for MeetingVotePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             OnEnter(AppState::InGame),
-            |mut m: ResMut<MeetingState>, cfg: Res<MatchConfig>| {
-                m.emergencies_left = cfg.emergency_meetings;
+            |mut m: ResMut<MeetingState>| {
                 m.clear_for_play();
             },
         )
+        // Local input only (all modes).
         .add_systems(
             Update,
-            (
-                emergency_hotkey,
-                handle_meeting_commands.run_if(super::has_authority),
-                apply_eject_on_results.run_if(super::has_authority),
-            )
+            emergency_hotkey
+                .in_set(super::GameSimSet::Input)
+                .run_if(in_state(AppState::InGame))
+                .run_if(|p: Res<Paused>| !p.0)
+                .run_if(|t: Res<Transition<AppState>>| !t.block_input),
+        )
+        // Authority resolves commands and ejects.
+        .add_systems(
+            Update,
+            (handle_meeting_commands, apply_eject_on_results)
                 .chain()
+                .in_set(super::GameSimSet::Resolve)
                 .run_if(in_state(AppState::InGame))
                 .run_if(|p: Res<Paused>| !p.0)
                 .run_if(|t: Res<Transition<AppState>>| !t.block_input)
@@ -146,10 +152,13 @@ impl Plugin for MeetingVotePlugin {
 fn emergency_hotkey(
     keys: Res<ButtonInput<KeyCode>>,
     phase: Res<GamePhase>,
+    local: Query<&Player, (With<super::LocalPlayer>, With<Alive>)>,
     mut ev: MessageWriter<MeetingCommand>,
 ) {
     if matches!(*phase, GamePhase::Playing) && keys.just_pressed(KeyCode::KeyF) {
-        ev.write(MeetingCommand::Emergency);
+        if let Ok(p) = local.single() {
+            ev.write(MeetingCommand::Emergency { actor_id: p.id });
+        }
     }
 }
 
@@ -160,67 +169,83 @@ fn handle_meeting_commands(
     cfg: Res<MatchConfig>,
     sabotage: Res<ActiveSabotage>,
     players: Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
-    local: Query<(&Player, Option<&Alive>), With<LocalPlayer>>,
+    mut living: Query<(&Player, &mut EmergenciesLeft), With<Alive>>,
+    positions: Query<(&Player, &Transform), With<Alive>>,
+    local_id: Res<LocalPlayerId>,
+    emergency_buttons: Query<&Transform, With<EmergencyButton>>,
     mut trauma: ResMut<Trauma>,
 ) {
     for cmd in ev.read() {
         match cmd {
-            MeetingCommand::Emergency => {
-                if !matches!(*phase, GamePhase::Playing) || meeting.emergencies_left == 0 {
+            MeetingCommand::Emergency { actor_id } => {
+                if !matches!(*phase, GamePhase::Playing) || sabotage.is_critical() {
                     continue;
                 }
-                // The emergency button must not bypass critical sabotage.
-                if sabotage.is_critical() {
-                    continue;
-                }
-                // Only a living local player can call a meeting.
-                let Ok((_, alive)) = local.single() else {
+                let Some((_, mut left)) = living
+                    .iter_mut()
+                    .find(|(p, _)| p.id == *actor_id)
+                else {
                     continue;
                 };
-                if alive.is_none() {
+                if left.0 == 0 {
                     continue;
                 }
-                meeting.emergencies_left -= 1;
+                // Map-gated: the caller must stand at the emergency button.
+                let Some((_, position)) = positions
+                    .iter()
+                    .find(|(p, _)| p.id == *actor_id)
+                else {
+                    continue;
+                };
+                let near_button = emergency_buttons.iter().any(|bt| {
+                    position.translation.truncate().distance(bt.translation.truncate())
+                        <= cfg.interact_range
+                });
+                if !near_button {
+                    continue;
+                }
+                left.0 -= 1;
                 ScreenEffects::add_trauma(&mut trauma, 0.35);
                 meeting.begin_meeting("Emergency Meeting!".into(), &players, cfg.discussion_time);
                 *phase = GamePhase::Meeting;
             }
-            MeetingCommand::Vote(target) => {
-                if !matches!(*phase, GamePhase::Voting) || meeting.local_voted {
+            MeetingCommand::Vote { voter_id, target } => {
+                if !matches!(*phase, GamePhase::Voting) || meeting.votes.contains_key(voter_id) {
                     continue;
                 }
-                let Ok((lp, alive)) = local.single() else {
-                    continue;
-                };
-                if alive.is_none() {
-                    continue;
-                }
-                let target_is_alive = meeting
+                let voter_alive = meeting
                     .options
                     .iter()
-                    .any(|option| option.player_id == *target && !option.dead);
-                if !target_is_alive {
+                    .any(|o| o.player_id == *voter_id && !o.dead);
+                let target_alive = meeting
+                    .options
+                    .iter()
+                    .any(|o| o.player_id == *target && !o.dead);
+                if !voter_alive || !target_alive {
                     continue;
                 }
-                let local_id = lp.id;
-                meeting.votes.insert(local_id, Some(*target));
-                meeting.local_voted = true;
-                bot_votes(&mut meeting, &players, local_id);
+                meeting.votes.insert(*voter_id, Some(*target));
+                if local_id.0 == Some(*voter_id) {
+                    meeting.local_voted = true;
+                }
+                bot_votes(&mut meeting, &players, *voter_id);
             }
-            MeetingCommand::Skip => {
-                if !matches!(*phase, GamePhase::Voting) || meeting.local_voted {
+            MeetingCommand::Skip { voter_id } => {
+                if !matches!(*phase, GamePhase::Voting) || meeting.votes.contains_key(voter_id) {
                     continue;
                 }
-                let Ok((lp, alive)) = local.single() else {
-                    continue;
-                };
-                if alive.is_none() {
+                let voter_alive = meeting
+                    .options
+                    .iter()
+                    .any(|o| o.player_id == *voter_id && !o.dead);
+                if !voter_alive {
                     continue;
                 }
-                let local_id = lp.id;
-                meeting.votes.insert(local_id, None);
-                meeting.local_voted = true;
-                bot_votes(&mut meeting, &players, local_id);
+                meeting.votes.insert(*voter_id, None);
+                if local_id.0 == Some(*voter_id) {
+                    meeting.local_voted = true;
+                }
+                bot_votes(&mut meeting, &players, *voter_id);
             }
         }
     }

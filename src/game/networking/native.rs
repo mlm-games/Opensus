@@ -11,8 +11,9 @@ use renet2_netcode::{
 
 use crate::app::AppState;
 use crate::game::{
-    ActiveSabotage, Alive, Body, GamePhase, Ghost, LobbySlot, LobbyState, LocalPlayer,
-    LocalPlayerId, MatchConfig, Player, PlayerIntent, Role, RuntimeMode,
+    ActiveSabotage, Alive, Body, GamePhase, Ghost, KillRequest, LobbySlot, LobbyState,
+    LocalPlayer, LocalPlayerId, MatchConfig, MeetingCommand, MeetingState, Player, PlayerIntent,
+    ReportBody, Role, RuntimeMode, SabotageAction, TaskBoard,
 };
 
 use super::PendingNetworkStart;
@@ -90,12 +91,12 @@ impl Plugin for NativeNetworkingPlugin {
                     client_send_ready,
                     host_receive_reliable_packets,
                     host_receive_input_packets,
-                    host_integrate_remote_input,
                     host_broadcast_lobby_snapshot,
                     host_send_match_started,
                     host_send_world_snapshots,
                     client_receive_packets,
                     client_send_input_packets,
+                    client_send_actions,
                     cleanup_network_on_title,
                 ),
             );
@@ -326,6 +327,10 @@ fn client_send_ready(
 fn host_receive_reliable_packets(
     server: Option<ResMut<NetServerRes>>,
     mut lobby: ResMut<LobbyState>,
+    mut kill_tx: MessageWriter<KillRequest>,
+    mut report_tx: MessageWriter<ReportBody>,
+    mut meeting_tx: MessageWriter<MeetingCommand>,
+    mut sab_tx: MessageWriter<SabotageAction>,
 ) {
     let Some(mut server) = server else { return };
 
@@ -366,15 +371,40 @@ fn host_receive_reliable_packets(
                         slot.ready = ready;
                     }
                 }
-                ClientPacket::Chat { .. }
-                | ClientPacket::Kill
-                | ClientPacket::Report
-                | ClientPacket::Emergency
-                | ClientPacket::Vote { .. }
-                | ClientPacket::Sabotage { .. }
-                | ClientPacket::Input { .. } => {
-                    // input is handled on the unreliable channel
+                // Client intent actions: player_id == client_id by construction.
+                ClientPacket::Kill => {
+                    kill_tx.write(KillRequest {
+                        actor_id: client_id,
+                    });
                 }
+                ClientPacket::Report => {
+                    report_tx.write(ReportBody {
+                        reporter_id: client_id,
+                    });
+                }
+                ClientPacket::Emergency => {
+                    meeting_tx.write(MeetingCommand::Emergency {
+                        actor_id: client_id,
+                    });
+                }
+                ClientPacket::Vote { target } => {
+                    match target {
+                        Some(t) => meeting_tx.write(MeetingCommand::Vote {
+                            voter_id: client_id,
+                            target: t,
+                        }),
+                        None => meeting_tx.write(MeetingCommand::Skip {
+                            voter_id: client_id,
+                        }),
+                    };
+                }
+                ClientPacket::Sabotage { kind } => {
+                    sab_tx.write(SabotageAction {
+                        actor_id: client_id,
+                        kind,
+                    });
+                }
+                ClientPacket::Chat { .. } | ClientPacket::Input { .. } => {}
             }
         }
     }
@@ -415,27 +445,9 @@ fn host_receive_input_packets(
     }
 }
 
-/// Server-authoritative movement for remote clients: the host integrates the
-/// intents it received into the remote players' transforms.
-fn host_integrate_remote_input(
-    time: Res<Time>,
-    mode: Res<RuntimeMode>,
-    phase: Res<GamePhase>,
-    mut players: Query<
-        (&Player, &PlayerIntent, &mut Transform),
-        (With<Alive>, Without<LocalPlayer>),
-    >,
-) {
-    if !matches!(*mode, RuntimeMode::Host) || !matches!(*phase, GamePhase::Playing) {
-        return;
-    }
-    for (player, intent, mut transform) in &mut players {
-        let delta = intent.movement * player.speed * time.delta_secs();
-        transform.translation += delta.extend(0.0);
-        transform.translation.x = transform.translation.x.clamp(-520.0, 520.0);
-        transform.translation.y = transform.translation.y.clamp(-300.0, 300.0);
-    }
-}
+/// Server-authoritative movement for remote clients lives in
+/// `player::apply_intent_movement` (GameSimSet::Resolve, authority only), which
+/// integrates the intents received here into the remote players' transforms.
 
 fn host_broadcast_lobby_snapshot(
     time: Res<Time>,
@@ -500,6 +512,8 @@ fn host_send_world_snapshots(
     server: Option<ResMut<NetServerRes>>,
     phase: Res<GamePhase>,
     sabotage: Option<Res<ActiveSabotage>>,
+    tasks: Option<Res<TaskBoard>>,
+    meeting: Option<Res<MeetingState>>,
     players: Query<(&Player, &Transform, Option<&Alive>)>,
     bodies: Query<(Entity, &Body, &Transform)>,
     mut mappings: ResMut<NetworkMappings>,
@@ -551,12 +565,35 @@ fn host_send_world_snapshots(
         })
     });
 
+    let (tasks_completed, tasks_total) = tasks
+        .map(|t| (t.completed, t.total))
+        .unwrap_or((0, 0));
+    let (meeting_prompt, meeting_timer, vote_options, result_text) = meeting
+        .map(|m| {
+            (
+                m.prompt.clone(),
+                m.timer.remaining_secs().max(0.0),
+                m.options
+                    .iter()
+                    .map(|o| (o.player_id, o.name.clone(), o.dead))
+                    .collect(),
+                m.result_text.clone(),
+            )
+        })
+        .unwrap_or_default();
+
     let packet = ServerPacket::WorldSnapshot {
         sequence: 0,
         players,
         bodies: body_states,
         phase: *phase,
         sabotage,
+        tasks_completed,
+        tasks_total,
+        meeting_prompt,
+        meeting_timer,
+        vote_options,
+        result_text,
     };
 
     let Ok(bytes) = bincode::serialize(&packet) else {
@@ -573,6 +610,10 @@ fn client_receive_packets(
     mut identity: ResMut<NetworkIdentity>,
     mut lobby: ResMut<LobbyState>,
     mut local_role: ResMut<crate::game::LocalRole>,
+    mut game_phase: Option<ResMut<GamePhase>>,
+    mut active_sab: Option<ResMut<ActiveSabotage>>,
+    mut tasks: Option<ResMut<TaskBoard>>,
+    mut meeting: Option<ResMut<MeetingState>>,
     mut replica_players: Query<(Entity, &ReplicaPlayer, &mut Transform, &mut Sprite)>,
     replica_bodies: Query<(Entity, &ReplicaBody)>,
 ) {
@@ -589,7 +630,6 @@ fn client_receive_packets(
             }
             ServerPacket::LobbySnapshot { players } => {
                 lobby.is_host = false;
-                lobby.local_ready = false;
                 lobby.slots = players
                     .into_iter()
                     .map(|p| LobbySlot {
@@ -602,6 +642,8 @@ fn client_receive_packets(
                     })
                     .collect();
 
+                // DO NOT force local_ready every packet: preserve the local
+                // player's toggle and let client_send_ready diff it later.
                 if let Some(slot) = lobby.slots.iter().find(|s| s.is_local) {
                     lobby.local_ready = slot.ready;
                 }
@@ -623,11 +665,54 @@ fn client_receive_packets(
         };
 
         let ServerPacket::WorldSnapshot {
-            players, bodies, ..
+            sequence: _,
+            players,
+            bodies,
+            phase,
+            sabotage,
+            tasks_completed,
+            tasks_total,
+            meeting_prompt,
+            meeting_timer,
+            vote_options,
+            result_text,
         } = packet
         else {
             continue;
         };
+
+        // Keep the client's game/rules in sync with the host authority.
+        if let Some(gp) = game_phase.as_mut() {
+            **gp = phase;
+        }
+        if let Some(sab) = active_sab.as_mut() {
+            if let Some(s) = sabotage {
+                sab.kind = Some(s.kind);
+                sab.fixes_needed = s.fixes_needed;
+                sab.fixes_done = s.fixes_done;
+                sab.timer = (s.remaining > 0.0)
+                    .then(|| Timer::from_seconds(s.remaining, TimerMode::Once));
+            } else {
+                sab.clear();
+            }
+        }
+        if let Some(tb) = tasks.as_mut() {
+            tb.completed = tasks_completed;
+            tb.total = tasks_total;
+        }
+        if let Some(m) = meeting.as_mut() {
+            m.prompt = meeting_prompt;
+            m.timer = Timer::from_seconds(meeting_timer.max(0.1), TimerMode::Once);
+            m.options = vote_options
+                .into_iter()
+                .map(|(id, name, dead)| crate::game::VoteOption {
+                    player_id: id,
+                    name,
+                    dead,
+                })
+                .collect();
+            m.result_text = result_text;
+        }
 
         let mut seen_players = Vec::new();
 
@@ -742,6 +827,53 @@ fn client_send_input_packets(
 
     if let Ok(bytes) = bincode::serialize(&packet) {
         client.0.send_message(C2S_INPUT, bytes);
+    }
+}
+
+/// Forwards local input-gathered actions to the host over the reliable
+/// channel. The authority validates every one of them; resolve systems do not
+/// run on the client.
+fn client_send_actions(
+    client: Option<ResMut<NetClientRes>>,
+    mode: Res<RuntimeMode>,
+    mut kills: MessageReader<KillRequest>,
+    mut reports: MessageReader<ReportBody>,
+    mut meetings: MessageReader<MeetingCommand>,
+    mut sabs: MessageReader<SabotageAction>,
+) {
+    if !matches!(*mode, RuntimeMode::Client) {
+        return;
+    }
+    let Some(mut client) = client else { return };
+    if !client.0.is_connected() {
+        return;
+    }
+    for _ in kills.read() {
+        if let Ok(b) = bincode::serialize(&ClientPacket::Kill) {
+            client.0.send_message(C2S_RELIABLE, b);
+        }
+    }
+    for _ in reports.read() {
+        if let Ok(b) = bincode::serialize(&ClientPacket::Report) {
+            client.0.send_message(C2S_RELIABLE, b);
+        }
+    }
+    for cmd in meetings.read() {
+        let packet = match cmd {
+            MeetingCommand::Emergency { .. } => ClientPacket::Emergency,
+            MeetingCommand::Vote { target, .. } => ClientPacket::Vote {
+                target: Some(*target),
+            },
+            MeetingCommand::Skip { .. } => ClientPacket::Vote { target: None },
+        };
+        if let Ok(b) = bincode::serialize(&packet) {
+            client.0.send_message(C2S_RELIABLE, b);
+        }
+    }
+    for a in sabs.read() {
+        if let Ok(b) = bincode::serialize(&ClientPacket::Sabotage { kind: a.kind }) {
+            client.0.send_message(C2S_RELIABLE, b);
+        }
     }
 }
 

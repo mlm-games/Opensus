@@ -18,6 +18,22 @@ pub struct Ghost;
 #[derive(Component)]
 pub struct PlayerLayer;
 
+/// Per-impostor kill cooldown (seconds remaining).
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct KillCooldownLeft(pub f32);
+
+/// Personal emergency meetings remaining this match.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct EmergenciesLeft(pub u8);
+
+/// Which dual-fix station this living player held on the previous reactor
+/// pulse. Tracks the Second Reactor rule (progress needs two simultaneous
+/// consoles), and is stripped when the player becomes a ghost.
+#[derive(Component, Default, Clone, Copy, Debug)]
+pub struct SabotageFixContribution {
+    pub station_entity: Option<Entity>,
+}
+
 #[derive(Component)]
 pub struct Body {
     #[allow(dead_code, reason = "Reserved for the network protocol")]
@@ -32,7 +48,13 @@ pub fn make_ghost(
     children: Option<&Children>,
     sprites: &mut Query<&mut Sprite>,
 ) {
-    commands.entity(entity).remove::<Alive>().insert(Ghost);
+    commands
+        .entity(entity)
+        .remove::<Alive>()
+        .remove::<KillCooldownLeft>()
+        .remove::<EmergenciesLeft>()
+        .remove::<SabotageFixContribution>()
+        .insert(Ghost);
 
     if let Ok(mut sprite) = sprites.get_mut(entity) {
         sprite.color = sprite.color.with_alpha(sprite.color.alpha().min(0.35));

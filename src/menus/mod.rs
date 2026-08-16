@@ -31,6 +31,7 @@ fn t(translations: &HashMap<String, String>, key: &str, fallback: &str) -> Strin
 
 #[derive(Clone, Debug)]
 pub enum UiAction {
+    PlayOffline,
     HostLobby,
     JoinLobby,
     ToggleReady,
@@ -226,6 +227,7 @@ fn loading_ui(st: &SharedUi) -> View {
 }
 
 fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    let h0 = actions.clone();
     let h1 = actions.clone();
     let h2 = actions.clone();
     let h3 = actions.clone();
@@ -277,7 +279,10 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .align_items(AlignItems::STRETCH),
     )
     .child([
-        mk_button(&t(tr, "host-game", "Host Game"), p_cyan_dark(), move || {
+        mk_button(&t(tr, "start-game", "Play Offline"), p_cyan_dark(), move || {
+            push(&h0, UiAction::PlayOffline)
+        }),
+        mk_button(&t(tr, "host-game", "Host Game"), p_button(), move || {
             push(&h1, UiAction::HostLobby)
         }),
         mk_button(
@@ -458,16 +463,23 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         .size(16.0)
         .color(p_green()),
         if matches!(st.my_role, Some(Role::Impostor)) {
-            RText(format!(
-                "{}: {:.0}s  (Q)",
-                t(tr, "kill-cooldown", "Kill CD"),
-                st.kill_cd
-            ))
-            .size(16.0)
-            .color(col(220, 160, 160))
+RText(format!(
+            "{}: {:.0}s  (Q)",
+            t(tr, "kill-cooldown", "Kill CD"),
+            st.kill_cd
+        ))
+        .size(16.0)
+        .color(col(220, 160, 160))
         } else {
             spacer(1.0)
         },
+        RText(format!(
+            "{}: {}  (F at map button)",
+            t(tr, "emergency-meeting", "Emergencies"),
+            st.emergencies_left
+        ))
+        .size(16.0)
+        .color(col(180, 180, 220)),
         if let Some(kind) = &st.sabotage_kind {
             let time_part = if st.sabotage_remaining > 0.0 {
                 format!(" - {:.0}s", st.sabotage_remaining)

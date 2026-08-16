@@ -136,6 +136,7 @@ pub struct SharedUi {
     pub tasks_done: u32,
     pub tasks_total: u32,
     pub kill_cd: f32,
+    pub emergencies_left: u32,
     pub phase_timer: f32,
     pub meeting_prompt: String,
     pub vote_options: Vec<(u64, String, bool)>, // id, name, dead
@@ -174,6 +175,7 @@ impl Default for SharedUi {
             tasks_done: 0,
             tasks_total: 0,
             kill_cd: 0.0,
+            emergencies_left: 0,
             phase_timer: 0.0,
             meeting_prompt: String::new(),
             vote_options: Vec::new(),
@@ -251,6 +253,12 @@ impl Plugin for AppPlugin {
                     sync_shared_ui,
                     sync_shared_game,
                     sync_post_process_settings::<AppState>,
+                )
+                    .chain(),
+            )
+            .add_systems(
+                Update,
+                (
                     process_ui_actions,
                     handle_pause_input,
                     tick_pending_unpause,
@@ -360,7 +368,13 @@ fn sync_shared_game(
     lobby: Option<Res<crate::game::LobbyState>>,
     match_cfg: Option<Res<MatchConfig>>,
     tasks: Option<Res<crate::game::TaskBoard>>,
-    kill_cd: Option<Res<crate::game::KillCooldown>>,
+    local_comps: Query<
+        (
+            Option<&crate::game::KillCooldownLeft>,
+            Option<&crate::game::EmergenciesLeft>,
+        ),
+        With<crate::game::LocalPlayer>,
+    >,
     meeting: Option<Res<crate::game::MeetingState>>,
     local_role: Option<Res<crate::game::LocalRole>>,
     sabotage: Option<Res<crate::game::ActiveSabotage>>,
@@ -380,7 +394,17 @@ fn sync_shared_game(
     } else if let Some(cfg) = match_cfg {
         ui.tasks_total = cfg.tasks_to_win;
     }
-    ui.kill_cd = kill_cd.map(|k| k.remaining).unwrap_or(0.0);
+    let (kill_cd, em) = local_comps
+        .single()
+        .map(|(k, e)| {
+            (
+                k.map(|c| c.0).unwrap_or(0.0),
+                e.map(|e| e.0 as u32).unwrap_or(0),
+            )
+        })
+        .unwrap_or((0.0, 0));
+    ui.kill_cd = kill_cd;
+    ui.emergencies_left = em;
     ui.my_role = local_role.and_then(|r| r.0);
     if let Some(m) = meeting {
         ui.phase_timer = m.timer.remaining_secs().max(0.0);
@@ -453,8 +477,18 @@ fn process_ui_actions(
     let Ok(mut q) = bridge.actions.lock() else {
         return;
     };
+    let local_id = lobby
+        .as_ref()
+        .and_then(|l| l.slots.iter().find(|s| s.is_local))
+        .map(|s| s.id);
     for action in q.drain(..) {
         match action {
+            UiAction::PlayOffline => {
+                // Pure local sandbox: bots, no transport.
+                *runtime_mode = crate::game::RuntimeMode::Local;
+                *pending_network = crate::game::PendingNetworkStart::None;
+                transition.begin_to_state(AppState::Loading);
+            }
             UiAction::HostLobby => {
                 // Default path: local sandbox with bots.
                 #[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
@@ -496,13 +530,22 @@ fn process_ui_actions(
                 transition.begin_to_state(AppState::Title);
             }
             UiAction::CallEmergency => {
-                meeting_cmds.write(crate::game::MeetingCommand::Emergency);
+                if let Some(id) = local_id {
+                    meeting_cmds.write(crate::game::MeetingCommand::Emergency { actor_id: id });
+                }
             }
             UiAction::CastVote(id) => {
-                meeting_cmds.write(crate::game::MeetingCommand::Vote(id));
+                if let Some(vid) = local_id {
+                    meeting_cmds.write(crate::game::MeetingCommand::Vote {
+                        voter_id: vid,
+                        target: id,
+                    });
+                }
             }
             UiAction::SkipVote => {
-                meeting_cmds.write(crate::game::MeetingCommand::Skip);
+                if let Some(vid) = local_id {
+                    meeting_cmds.write(crate::game::MeetingCommand::Skip { voter_id: vid });
+                }
             }
             UiAction::PlayAgain => {
                 if let Some(ref mut gp) = game_phase {

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::game::{GamePhase, Role, SabotageKind};
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 pub const PROTOCOL_ID: u64 = 0x4F50_454E_5355_5301;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -86,6 +86,12 @@ pub enum ServerPacket {
         bodies: Vec<NetBodyState>,
         phase: GamePhase,
         sabotage: Option<NetSabotageState>,
+        tasks_completed: u32,
+        tasks_total: u32,
+        meeting_prompt: String,
+        meeting_timer: f32,
+        vote_options: Vec<(u64, String, bool)>,
+        result_text: String,
     },
     Chat {
         player_id: u64,

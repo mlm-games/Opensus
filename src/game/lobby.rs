@@ -77,9 +77,9 @@ fn setup_lobby(
             fill_bots(&mut lobby);
         }
         RuntimeMode::Host => {
-            // Always playable solo: bots fill until real clients replace them.
+            // Online host starts with just themselves; real clients join over
+            // the network and the host start rule requires everyone ready.
             push_local_host(&mut lobby);
-            fill_bots(&mut lobby);
         }
         RuntimeMode::Client => {
             lobby.is_host = false;
@@ -90,15 +90,20 @@ fn setup_lobby(
 fn handle_start_match(
     mut ev: MessageReader<StartMatchRequest>,
     lobby: Res<LobbyState>,
+    mode: Res<RuntimeMode>,
     mut transition: ResMut<game_utils_bevy::transitions::Transition<AppState>>,
 ) {
     for _ in ev.read() {
-        if !lobby.is_host {
+        if !lobby.is_host || !lobby.local_ready {
             continue;
         }
-        let ready_count = lobby.slots.iter().filter(|s| s.ready || s.is_local).count();
-        // require local ready + at least 2
-        if lobby.local_ready && ready_count >= 2 {
+        let total = lobby.slots.len();
+        if total < 2 {
+            continue;
+        }
+        // Offline bots are pre-ready; online Host requires every remote ready.
+        let everyone_ready = lobby.slots.iter().all(|s| s.is_local || s.ready);
+        if matches!(*mode, RuntimeMode::Local) || everyone_ready {
             transition.begin_to_state(AppState::InGame);
         }
     }
