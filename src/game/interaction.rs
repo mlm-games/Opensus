@@ -120,7 +120,10 @@ fn try_complete_task(
     station.done = true;
     sprite.color = Color::srgba(0.55, 0.55, 0.55, 0.85);
 
-    task_board.completed = task_board.completed.saturating_add(1);
+    // Never count past the win threshold (extra stations / double-complete).
+    if task_board.completed < task_board.total {
+        task_board.completed = task_board.completed.saturating_add(1);
+    }
 
     VfxSpawner::spawn_burst(
         commands,

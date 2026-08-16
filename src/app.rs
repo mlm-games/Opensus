@@ -549,6 +549,7 @@ fn process_ui_actions(
             }
             UiAction::PlayAgain => {
                 *pending_network = crate::game::PendingNetworkStart::None;
+                *runtime_mode = crate::game::RuntimeMode::Local; // sandbox rematch
                 if let Some(ref mut gp) = game_phase {
                     **gp = GamePhase::None;
                 }
@@ -665,7 +666,12 @@ fn handle_pause_input(
     if *state.get() != AppState::InGame {
         return;
     }
-    let _ = game_phase;
+    // GameOver UI owns the screen; Esc shouldn't open the pause menu.
+    if let Some(gp) = game_phase.as_ref()
+        && matches!(**gp, GamePhase::GameOver { .. })
+    {
+        return;
+    }
     if transition.block_input {
         return;
     }

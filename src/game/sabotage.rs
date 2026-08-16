@@ -251,12 +251,15 @@ fn tick_sabotage(
 ) {
     cooldown.remaining = (cooldown.remaining - time.delta_secs()).max(0.0);
 
-    if !matches!(*phase, GamePhase::Playing) {
-        return;
-    }
-
-    if let Some(timer) = sabotage.timer.as_mut() {
-        timer.tick(time.delta());
+    // Critical sabotage continues through meetings/voting/results.
+    // Non-critical (lights) only matters in open play; timer is None anyway.
+    if matches!(
+        *phase,
+        GamePhase::Playing | GamePhase::Meeting | GamePhase::Voting | GamePhase::Results
+    ) {
+        if let Some(timer) = sabotage.timer.as_mut() {
+            timer.tick(time.delta());
+        }
     }
 }
 
@@ -269,10 +272,7 @@ fn check_sabotage_loss(
     if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
         return;
     }
-    // Critical sabotage only resolves during open play (meetings cancel it).
-    if !matches!(*phase, GamePhase::Playing) {
-        return;
-    }
+    // Allow loss during meetings — reactor/O2 don't pause.
     if !sabotage.is_critical() || sabotage.is_fixed() {
         return;
     }

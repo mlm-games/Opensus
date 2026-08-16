@@ -3,7 +3,7 @@ use rand::seq::SliceRandom;
 
 use super::{
     Alive, Body, CHARACTER_HEIGHT, EmergenciesLeft, GameAssets, GamePhase, Ghost, KillCooldownLeft,
-    KillRequest, LocalRole, MatchCleanup, MatchConfig, PlayerLayer, ReportBody, Role,
+    KillRequest, LocalRole, MatchCleanup, MatchConfig, MatchStats, PlayerLayer, ReportBody, Role,
     SabotageFixContribution, TaskStation, bake_body_tint,
 };
 use crate::app::{AppState, Paused};
@@ -92,6 +92,7 @@ fn spawn_players_from_lobby(
     mut images: ResMut<Assets<Image>>,
     mut local_role: ResMut<LocalRole>,
     mut local_player_id: ResMut<LocalPlayerId>,
+    mut stats: ResMut<MatchStats>,
 ) {
     local_player_id.0 = None;
     local_role.0 = None;
@@ -131,6 +132,9 @@ fn spawn_players_from_lobby(
         .take(imp_count)
         .map(|i| slots[i].id)
         .collect();
+
+    stats.players_spawned = slots.len() as u32;
+    stats.impostors_spawned = impostor_ids.len() as u32;
 
     let start_positions = [
         Vec2::new(-80.0, 0.0),

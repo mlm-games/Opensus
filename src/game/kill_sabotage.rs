@@ -212,8 +212,12 @@ fn do_report(
             body.reported = true;
         }
 
-        // A report cancels the active sabotage and begins a meeting.
-        sabotage.clear();
+        // Lights (non-critical) soft-reset on meeting. Critical O2/Reactor
+        // MUST keep running during meetings (Among Us rule) or impostors
+        // lose a real win path whenever a body is found.
+        if !sabotage.is_critical() {
+            sabotage.clear();
+        }
 
         ScreenEffects::add_trauma(&mut trauma, 0.4);
 

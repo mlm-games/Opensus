@@ -23,11 +23,19 @@ pub struct TaskStation {
 pub struct TasksPlugin;
 impl Plugin for TasksPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::InGame), spawn_task_stations);
+        app.add_systems(
+            OnEnter(AppState::InGame),
+            spawn_task_stations.after(super::setup_match),
+        );
     }
 }
 
-fn spawn_task_stations(mut commands: Commands, assets: Res<GameAssets>) {
+fn spawn_task_stations(
+    mut commands: Commands,
+    assets: Res<GameAssets>,
+    cfg: Res<super::MatchConfig>,
+    mut board: ResMut<TaskBoard>,
+) {
     let stations = [
         (1, "Wire tap", Vec2::new(-280.0, 120.0), assets.task_beaker.clone()),
         (2, "Decode", Vec2::new(280.0, 120.0), assets.task_flask.clone()),
@@ -35,7 +43,14 @@ fn spawn_task_stations(mut commands: Commands, assets: Res<GameAssets>) {
         (4, "Scan", Vec2::new(280.0, -120.0), assets.task_flask.clone()),
         (5, "Upload", Vec2::new(0.0, 40.0), assets.task_beaker.clone()),
     ];
-    for (id, label, pos, image) in stations {
+
+    // Win threshold = min(config, available stations) so the bar is reachable
+    // and never requires more completions than exist.
+    let available = stations.len() as u32;
+    board.total = cfg.tasks_to_win.min(available).max(1);
+    board.completed = 0;
+
+    for (id, label, pos, image) in stations.into_iter().take(board.total as usize) {
         let e = commands
             .spawn((
                 MatchCleanup,
