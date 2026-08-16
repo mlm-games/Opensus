@@ -56,7 +56,7 @@ fn setup_lobby(
     };
 
     let fill_bots = |lobby: &mut LobbyState| {
-        for i in 0..3u64 {
+        for i in 0..cfg.bot_count as u64 {
             if lobby.slots.len() >= cfg.max_players as usize {
                 break;
             }

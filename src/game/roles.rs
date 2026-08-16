@@ -31,6 +31,7 @@ pub struct EmergenciesLeft(pub u8);
 /// consoles), and is stripped when the player becomes a ghost.
 #[derive(Component, Default, Clone, Copy, Debug)]
 pub struct SabotageFixContribution {
+    #[allow(dead_code, reason = "Reserved for soft-window Reactor sync rule")]
     pub station_entity: Option<Entity>,
 }
 

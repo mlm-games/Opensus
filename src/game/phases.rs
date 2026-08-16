@@ -44,6 +44,11 @@ pub struct MatchConfig {
     pub sabotage_fix_time: f32,
     /// Reactor: both consoles must be held within this window of each other,
     /// i.e. two crewmates fixing at once — a solo player cannot skip.
+    ///
+    /// Currently unused: the Reactor fix adopts the stricter simultaneous
+    /// dual-hold rule (`interaction::reactor_fix_global`) which guarantees no
+    /// solo skip; kept as a knob in case the windowed variant is preferred.
+    #[allow(dead_code, reason = "Alternative soft-window Reactor rule")]
     pub reactor_sync_window: f32,
 
     pub player_speed: f32,
