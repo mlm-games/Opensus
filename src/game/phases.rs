@@ -6,6 +6,33 @@ use super::Role;
 /// World-space movement bounds (half extents). Kept in sync with the map.
 pub const MAP_BOUNDS: Vec2 = Vec2::new(520.0, 300.0);
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum WinReason {
+    /// Shared task bar filled.
+    Tasks,
+    /// All living impostors eliminated (eject/kill).
+    ImpostorsEliminated,
+    /// Living impostors >= living crewmates.
+    ImpostorMajority,
+    /// O2 / Reactor timer-likes expired.
+    CriticalSabotage,
+}
+
+impl WinReason {
+    pub fn crew_win(self) -> bool {
+        matches!(self, Self::Tasks | Self::ImpostorsEliminated)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Tasks => "All tasks completed",
+            Self::ImpostorsEliminated => "All impostors eliminated",
+            Self::ImpostorMajority => "Impostors reached majority",
+            Self::CriticalSabotage => "Critical sabotage detonated",
+        }
+    }
+}
+
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum GamePhase {
     #[default]
@@ -16,6 +43,7 @@ pub enum GamePhase {
     Results,
     GameOver {
         crew_win: bool,
+        reason: WinReason,
     },
 }
 

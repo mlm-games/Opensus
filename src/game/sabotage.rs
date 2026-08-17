@@ -92,10 +92,14 @@ impl Plugin for SabotagePlugin {
             )
             .add_systems(
                 Update,
-                (apply_sabotage, tick_sabotage, check_sabotage_loss, clear_fixed_sabotage)
+                (
+                    apply_sabotage,
+                    tick_sabotage,
+                    check_sabotage_loss,
+                    clear_fixed_sabotage,
+                )
                     .chain()
-                    .after(crate::game::kill_sabotage::do_report)
-                    .in_set(super::GameSimSet::Resolve)
+                    .in_set(super::ResolveStep::Sabotage)
                     .run_if(in_state(AppState::InGame))
                     .run_if(|paused: Res<Paused>| !paused.0)
                     .run_if(|transition: Res<Transition<AppState>>| !transition.block_input)
@@ -111,11 +115,31 @@ fn reset_sabotage(mut sabotage: ResMut<ActiveSabotage>, mut cooldown: ResMut<Sab
 
 fn spawn_fix_stations(mut commands: Commands, assets: Res<GameAssets>) {
     let stations = [
-        (Vec2::new(-200.0, 80.0), SabotageKind::Oxygen, assets.task_burner.clone()),
-        (Vec2::new(200.0, 80.0), SabotageKind::Oxygen, assets.task_burner.clone()),
-        (Vec2::new(-200.0, -80.0), SabotageKind::Reactor, assets.task_beaker.clone()),
-        (Vec2::new(200.0, -80.0), SabotageKind::Reactor, assets.task_beaker.clone()),
-        (Vec2::new(0.0, 140.0), SabotageKind::Lights, assets.task_flask.clone()),
+        (
+            Vec2::new(-200.0, 80.0),
+            SabotageKind::Oxygen,
+            assets.task_burner.clone(),
+        ),
+        (
+            Vec2::new(200.0, 80.0),
+            SabotageKind::Oxygen,
+            assets.task_burner.clone(),
+        ),
+        (
+            Vec2::new(-200.0, -80.0),
+            SabotageKind::Reactor,
+            assets.task_beaker.clone(),
+        ),
+        (
+            Vec2::new(200.0, -80.0),
+            SabotageKind::Reactor,
+            assets.task_beaker.clone(),
+        ),
+        (
+            Vec2::new(0.0, 140.0),
+            SabotageKind::Lights,
+            assets.task_flask.clone(),
+        ),
     ];
 
     for (position, kind, image) in stations {
@@ -256,14 +280,9 @@ fn tick_sabotage(
     mut sabotage: ResMut<ActiveSabotage>,
     mut cooldown: ResMut<SabotageCooldown>,
 ) {
-    cooldown.remaining = (cooldown.remaining - time.delta_secs()).max(0.0);
-
-    // Critical sabotage continues through meetings/voting/results.
-    // Non-critical (lights) only matters in open play; timer is None anyway.
-    if matches!(
-        *phase,
-        GamePhase::Playing | GamePhase::Meeting | GamePhase::Voting | GamePhase::Results
-    ) {
+    // Cooldown always drains in open play only (meetings pause ship action).
+    if matches!(*phase, GamePhase::Playing) {
+        cooldown.remaining = (cooldown.remaining - time.delta_secs()).max(0.0);
         if let Some(timer) = sabotage.timer.as_mut() {
             timer.tick(time.delta());
         }
@@ -272,30 +291,26 @@ fn tick_sabotage(
 
 fn check_sabotage_loss(
     mut phase: ResMut<GamePhase>,
-    mut sabotage: ResMut<ActiveSabotage>,
-    meeting: Res<super::MeetingState>,
+    sabotage: Res<ActiveSabotage>,
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
 ) {
-    if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
-        return;
-    }
-    // Eject already decided the match — Results reveal owns the beat.
-    if meeting.decided_win.is_some() {
+    if !matches!(*phase, GamePhase::Playing) {
         return;
     }
     if !sabotage.is_critical() || sabotage.is_fixed() {
         return;
     }
-    if !sabotage.timer.as_ref().is_some_and(Timer::just_finished) {
+    let expired = sabotage.timer.as_ref().is_some_and(|t| t.is_finished());
+    if !expired {
         return;
     }
     super::apply_game_over(
         &mut phase,
         false,
+        super::WinReason::CriticalSabotage,
         &mut save,
         &manager,
-        Some(&mut sabotage),
     );
 }
 

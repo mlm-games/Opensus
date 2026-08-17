@@ -40,14 +40,11 @@ impl Plugin for KillSabotagePlugin {
             Update,
             (tick_kill_cds, do_kill, do_report)
                 .chain()
-                .after(super::interaction::process_interactions)
-                .in_set(super::GameSimSet::Resolve)
+                .in_set(super::ResolveStep::Combat)
                 .run_if(in_state(AppState::InGame))
                 .run_if(|p: Res<Paused>| !p.0)
                 .run_if(|t: Res<Transition<AppState>>| !t.block_input)
-                .run_if(|ph: Res<GamePhase>| {
-                    matches!(*ph, GamePhase::Playing | GamePhase::GameOver { .. })
-                })
+                .run_if(|ph: Res<GamePhase>| matches!(*ph, GamePhase::Playing))
                 .run_if(super::has_authority),
         );
     }
@@ -86,7 +83,6 @@ fn do_kill(
     stats: Res<super::MatchStats>,
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
-    mut sabotage: ResMut<super::ActiveSabotage>,
     mut actors: Query<(&Transform, &Role, &Player, &mut KillCooldownLeft), With<Alive>>,
     targets: Query<(Entity, &Player, &Transform, &Role, Option<&Children>), With<Alive>>,
     mut sprites: Query<&mut Sprite>,
@@ -183,14 +179,9 @@ fn do_kill(
                 Role::Impostor => imps += 1,
             }
         }
-        if let Some(crew_win) = super::compute_win_from_counts(&tasks, crew, imps, &stats) {
-            super::apply_game_over(
-                &mut phase,
-                crew_win,
-                &mut save,
-                &manager,
-                Some(&mut sabotage),
-            );
+        if let Some((crew_win, reason)) = super::compute_win_from_counts(&tasks, crew, imps, &stats)
+        {
+            super::apply_game_over(&mut phase, crew_win, reason, &mut save, &manager);
             break;
         }
     }
@@ -212,28 +203,20 @@ fn report_input(
     });
 }
 
-pub(crate) fn do_report(
+fn do_report(
     mut requests: MessageReader<ReportBody>,
     mut phase: ResMut<GamePhase>,
     mut meeting: ResMut<MeetingState>,
     config: Res<MatchConfig>,
     mut sabotage: ResMut<super::ActiveSabotage>,
-    tasks: Res<super::TaskBoard>,
-    stats: Res<super::MatchStats>,
+    mut fix_stations: Query<(&mut super::SabotageFixStation, &mut Sprite)>,
     reporters: Query<(&Player, &Transform), With<Alive>>,
     mut bodies: Query<(Entity, &mut Body, &Transform)>,
     players: Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
-    living_roles: Query<&Role, (With<Player>, With<Alive>)>,
     mut trauma: ResMut<Trauma>,
 ) {
     for request in requests.read() {
-        if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
-            continue;
-        }
         if !matches!(*phase, GamePhase::Playing) {
-            continue;
-        }
-        if super::compute_win(&tasks, &living_roles, &stats).is_some() {
             continue;
         }
 
@@ -268,11 +251,15 @@ pub(crate) fn do_report(
             body.reported = true;
         }
 
-        // Lights (non-critical) soft-reset on meeting. Critical O2/Reactor
-        // MUST keep running during meetings (Among Us rule) or impostors
-        // lose a real win path whenever a body is found.
-        if !sabotage.is_critical() {
+        // A body report CEASES critical sabotages (O2/Reactor).
+        // Non-critical (Lights) are NOT auto-fixed and persist after the meeting.
+        // Emergency button remains blocked while critical is active (see meeting_vote).
+        if sabotage.is_critical() {
             sabotage.clear();
+            for (mut station, mut sprite) in &mut fix_stations {
+                station.progress = 0.0;
+                sprite.color = Color::srgba(1.0, 1.0, 1.0, 0.0);
+            }
         }
 
         ScreenEffects::add_trauma(&mut trauma, 0.4);

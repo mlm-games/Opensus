@@ -584,14 +584,24 @@ fn meeting_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 
 fn gameover_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let tr = &st.translations;
-    let (msg, color) = match st.game_phase {
-        GamePhase::GameOver { crew_win: true } => {
-            (t(tr, "crewmates-win", "Crewmates win!"), col(80, 180, 100))
-        }
-        GamePhase::GameOver { crew_win: false } => {
-            (t(tr, "impostors-win", "Impostors win!"), col(200, 70, 70))
-        }
-        _ => (String::new(), RColor::WHITE),
+    let (msg, sub, color) = match st.game_phase {
+        GamePhase::GameOver {
+            crew_win: true,
+            reason,
+        } => (
+            t(tr, "crewmates-win", "Crewmates win!"),
+            reason.label().to_string(),
+            col(80, 180, 100),
+        ),
+        GamePhase::GameOver {
+            crew_win: false,
+            reason,
+        } => (
+            t(tr, "impostors-win", "Impostors win!"),
+            reason.label().to_string(),
+            col(200, 70, 70),
+        ),
+        _ => (String::new(), String::new(), RColor::WHITE),
     };
     let a = actions.clone();
     let a2 = actions.clone();
@@ -618,6 +628,8 @@ fn gameover_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         )
         .child((
             RText(msg).size(38.0).color(color),
+            spacer(6.0),
+            RText(sub).size(16.0).color(p_text_dim()),
             spacer(14.0),
             mk_button(&t(tr, "play-again", "Play Again"), p_green(), move || {
                 push(&a, UiAction::PlayAgain)

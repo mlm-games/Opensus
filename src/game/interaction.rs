@@ -134,7 +134,7 @@ fn try_complete_task(
     );
 }
 
-pub(crate) fn process_interactions(
+fn process_interactions(
     time: Res<Time>,
     config: Res<MatchConfig>,
     mut commands: Commands,
