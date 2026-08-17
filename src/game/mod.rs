@@ -83,7 +83,7 @@ impl Plugin for GamePlugin {
                 Update,
                 (
                     cleanup_bodies_on_meeting,
-                    ensure_bot_votes,    // BEFORE tick — critical
+                    ensure_bot_votes, // BEFORE tick — critical
                     tick_phase_timers,
                     apply_pending_eject, // same frame Results starts
                 )
@@ -149,6 +149,8 @@ fn cleanup_match(
     q: Query<Entity, With<MatchCleanup>>,
     mut phase: ResMut<GamePhase>,
     mut stats: ResMut<MatchStats>,
+    mut meeting: ResMut<MeetingState>,
+    mut sabotage: ResMut<ActiveSabotage>,
 ) {
     for e in &q {
         commands.entity(e).despawn();
@@ -157,6 +159,8 @@ fn cleanup_match(
     // Phase is cleared by PlayAgain / QuitToTitle.
     let _ = &mut phase;
     *stats = MatchStats::default();
+    meeting.clear_for_play();
+    sabotage.clear();
 }
 
 fn cleanup_bodies_on_meeting(
@@ -189,6 +193,7 @@ fn tick_phase_timers(
     stats: Res<MatchStats>,
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
+    mut sabotage: ResMut<ActiveSabotage>,
 ) {
     // Never advance meeting timers after the match is decided.
     if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
@@ -214,10 +219,19 @@ fn tick_phase_timers(
         GamePhase::Results => {
             meeting.timer.tick(time.delta());
             if meeting.timer.just_finished() {
-                // Eject was applied at Results entry (apply_pending_eject).
-                // Decide the match HERE so we never flash Playing.
-                if let Some(crew_win) = compute_win(&tasks, &players, &stats) {
-                    apply_game_over(&mut phase, crew_win, &mut save, &manager);
+                let win = meeting
+                    .decided_win
+                    .take()
+                    .or_else(|| compute_win(&tasks, &players, &stats));
+
+                if let Some(crew_win) = win {
+                    apply_game_over(
+                        &mut phase,
+                        crew_win,
+                        &mut save,
+                        &manager,
+                        Some(&mut sabotage),
+                    );
                 } else {
                     *phase = GamePhase::Playing;
                 }
@@ -227,7 +241,6 @@ fn tick_phase_timers(
         _ => {}
     }
 }
-
 fn apply_pending_eject(
     phase: Res<GamePhase>,
     mut meeting: ResMut<MeetingState>,
@@ -235,6 +248,8 @@ fn apply_pending_eject(
     mut q: Query<(Entity, &Player, Option<&Children>, &Role), With<Alive>>,
     mut sprites: Query<&mut Sprite>,
     mut trauma: ResMut<Trauma>,
+    tasks: Res<TaskBoard>,
+    stats: Res<MatchStats>,
 ) {
     // Only consume eject once we've entered Results.
     if !matches!(*phase, GamePhase::Results) {
@@ -243,6 +258,9 @@ fn apply_pending_eject(
     let Some(eid) = meeting.pending_eject.take() else {
         return;
     };
+
+    let mut ejected_entity: Option<Entity> = None;
+
     for (e, p, children, role) in &mut q {
         if p.id != eid {
             continue;
@@ -254,7 +272,23 @@ fn apply_pending_eject(
         } else {
             format!("{} was not an Impostor.", p.name)
         };
+        ejected_entity = Some(e);
         break;
+    }
+
+    if let Some(ejected) = ejected_entity {
+        let mut crew = 0u32;
+        let mut imps = 0u32;
+        for (e2, _, _, role2) in &q {
+            if e2 == ejected {
+                continue;
+            }
+            match *role2 {
+                Role::Crewmate => crew += 1,
+                Role::Impostor => imps += 1,
+            }
+        }
+        meeting.decided_win = compute_win_from_counts(&tasks, crew, imps, &stats);
     }
 }
 
@@ -271,12 +305,8 @@ fn ensure_bot_votes(
     crate::game::meeting_vote::bot_votes_public(&mut meeting, &players, skip);
 }
 
-/// Pure win rule. `Some(true)` = crew win, `Some(false)` = impostor win.
-pub fn compute_win(
-    tasks: &TaskBoard,
-    players: &Query<&Role, (With<Player>, With<Alive>)>,
-    stats: &MatchStats,
-) -> Option<bool> {
+/// Living crew / impostor counts (Alive only).
+pub fn living_role_counts(players: &Query<&Role, (With<Player>, With<Alive>)>) -> (u32, u32) {
     let mut crew = 0u32;
     let mut imps = 0u32;
     for role in players.iter() {
@@ -285,29 +315,48 @@ pub fn compute_win(
             Role::Impostor => imps += 1,
         }
     }
-    let living = crew + imps;
+    (crew, imps)
+}
 
-    // 1) Task bar (shared sandbox board).
+/// Pure win rule from counts.
+/// `Some(true)` = crew win, `Some(false)` = impostor win, `None` = continue.
+pub fn compute_win_from_counts(
+    tasks: &TaskBoard,
+    crew: u32,
+    imps: u32,
+    stats: &MatchStats,
+) -> Option<bool> {
     if tasks.total > 0 && tasks.completed >= tasks.total {
         return Some(true);
     }
 
-    // No living players: don't invent a winner (shouldn't happen in normal flow).
+    let living = crew.saturating_add(imps);
+    // Don't invent a winner if the world is empty.
     if living == 0 {
         return None;
     }
 
-    // 2) All impostors gone — only if the match actually had impostors.
+    // 2) All impostors gone — only if the match actually seeded impostors.
     if imps == 0 && stats.impostors_spawned > 0 {
         return Some(true);
     }
 
-    // 3) Impostor majority (1v1 ⇒ impostors win).
+    // 3) Impostor majority / parity (1v1 ⇒ impostors).
     if stats.impostors_spawned > 0 && imps >= crew {
         return Some(false);
     }
 
     None
+}
+
+/// Convenience over a live query.
+pub fn compute_win(
+    tasks: &TaskBoard,
+    players: &Query<&Role, (With<Player>, With<Alive>)>,
+    stats: &MatchStats,
+) -> Option<bool> {
+    let (crew, imps) = living_role_counts(players);
+    compute_win_from_counts(tasks, crew, imps, stats)
 }
 
 fn check_win_conditions(
@@ -317,14 +366,27 @@ fn check_win_conditions(
     stats: Res<MatchStats>,
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
+    mut sabotage: ResMut<ActiveSabotage>,
+    mut meeting: ResMut<MeetingState>,
 ) {
-    // Open play only. Results decides at timer end inside tick_phase_timers
-    // so the eject/role-reveal UI always gets a full beat.
-    if !matches!(*phase, GamePhase::Playing) {
-        return;
+    // Results owns its own end-of-timer decision so the eject reveal always
+    // gets a full beat. GameOver / None are terminal.
+    match *phase {
+        GamePhase::Playing | GamePhase::Meeting | GamePhase::Voting => {}
+        _ => return,
     }
+
     if let Some(crew_win) = compute_win(&tasks, &players, &stats) {
-        apply_game_over(&mut phase, crew_win, &mut save, &manager);
+        // If we're mid-meeting because of a kill→report race, snap to GameOver
+        // immediately (Among Us: parity kill never opens a meeting).
+        meeting.decided_win = None;
+        apply_game_over(
+            &mut phase,
+            crew_win,
+            &mut save,
+            &manager,
+            Some(&mut sabotage),
+        );
     }
 }
 
@@ -333,11 +395,18 @@ pub fn apply_game_over(
     crew_win: bool,
     save: &mut crate::save::SaveData,
     manager: &game_utils_bevy::save::SaveManager,
+    mut sabotage: Option<&mut ActiveSabotage>,
 ) {
     if matches!(*phase, GamePhase::GameOver { .. }) {
         return;
     }
     *phase = GamePhase::GameOver { crew_win };
+
+    // Stop critical timers so nothing can "finish" under the end screen.
+    if let Some(s) = sabotage.as_deref_mut() {
+        s.clear();
+    }
+
     save.games_played = save.games_played.saturating_add(1);
     if crew_win {
         save.crew_wins = save.crew_wins.saturating_add(1);
@@ -346,5 +415,94 @@ pub fn apply_game_over(
     }
     if let Err(e) = manager.save(&*save) {
         warn!("failed to save match result: {e}");
+    }
+}
+
+#[cfg(test)]
+mod win_tests {
+    use super::*;
+
+    fn stats(imps: u32, players: u32) -> MatchStats {
+        MatchStats {
+            impostors_spawned: imps,
+            players_spawned: players,
+        }
+    }
+
+    fn board(done: u32, total: u32) -> TaskBoard {
+        TaskBoard {
+            completed: done,
+            total,
+        }
+    }
+
+    #[test]
+    fn tasks_complete_crew_win() {
+        assert_eq!(
+            compute_win_from_counts(&board(4, 4), 3, 1, &stats(1, 4)),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn tasks_disabled_when_total_zero() {
+        assert_eq!(
+            compute_win_from_counts(&board(0, 0), 3, 1, &stats(1, 4)),
+            None
+        );
+    }
+
+    #[test]
+    fn all_imps_gone_crew_win() {
+        assert_eq!(
+            compute_win_from_counts(&board(0, 4), 2, 0, &stats(1, 4)),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn no_imps_seeded_no_death_win() {
+        // Solo / debug: never auto-crew-win just because imps==0.
+        assert_eq!(
+            compute_win_from_counts(&board(0, 4), 1, 0, &stats(0, 1)),
+            None
+        );
+    }
+
+    #[test]
+    fn parity_impostor_win() {
+        assert_eq!(
+            compute_win_from_counts(&board(0, 4), 1, 1, &stats(1, 4)),
+            Some(false)
+        );
+        assert_eq!(
+            compute_win_from_counts(&board(0, 4), 2, 2, &stats(2, 6)),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn majority_impostor_win() {
+        assert_eq!(
+            compute_win_from_counts(&board(0, 4), 1, 2, &stats(2, 5)),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn empty_world_no_winner() {
+        assert_eq!(
+            compute_win_from_counts(&board(0, 4), 0, 0, &stats(1, 4)),
+            None
+        );
+    }
+
+    #[test]
+    fn task_win_beats_living_imps() {
+        // Tasks finishing while imps still alive ⇒ crew.
+        assert_eq!(
+            compute_win_from_counts(&board(4, 4), 1, 1, &stats(1, 4)),
+            Some(true)
+        );
     }
 }

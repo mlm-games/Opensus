@@ -94,6 +94,7 @@ impl Plugin for SabotagePlugin {
                 Update,
                 (apply_sabotage, tick_sabotage, check_sabotage_loss, clear_fixed_sabotage)
                     .chain()
+                    .after(crate::game::kill_sabotage::do_report)
                     .in_set(super::GameSimSet::Resolve)
                     .run_if(in_state(AppState::InGame))
                     .run_if(|paused: Res<Paused>| !paused.0)
@@ -175,6 +176,7 @@ fn sabotage_input(
 
 fn apply_sabotage(
     mut actions: MessageReader<SabotageAction>,
+    phase: Res<GamePhase>,
     config: Res<MatchConfig>,
     mut sabotage: ResMut<ActiveSabotage>,
     mut cooldown: ResMut<SabotageCooldown>,
@@ -184,6 +186,11 @@ fn apply_sabotage(
     mut commands: Commands,
     transforms: Query<(&Player, &Transform)>,
 ) {
+    if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
+        for _ in actions.read() {}
+        return;
+    }
+
     for action in actions.read() {
         if sabotage.is_active() || cooldown.remaining > 0.0 {
             continue;
@@ -265,22 +272,31 @@ fn tick_sabotage(
 
 fn check_sabotage_loss(
     mut phase: ResMut<GamePhase>,
-    sabotage: Res<ActiveSabotage>,
+    mut sabotage: ResMut<ActiveSabotage>,
+    meeting: Res<super::MeetingState>,
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
 ) {
     if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
         return;
     }
-    // Allow loss during meetings — reactor/O2 don't pause.
+    // Eject already decided the match — Results reveal owns the beat.
+    if meeting.decided_win.is_some() {
+        return;
+    }
     if !sabotage.is_critical() || sabotage.is_fixed() {
         return;
     }
-    let expired = sabotage.timer.as_ref().is_some_and(Timer::just_finished);
-    if !expired {
+    if !sabotage.timer.as_ref().is_some_and(Timer::just_finished) {
         return;
     }
-    super::apply_game_over(&mut phase, false, &mut save, &manager);
+    super::apply_game_over(
+        &mut phase,
+        false,
+        &mut save,
+        &manager,
+        Some(&mut sabotage),
+    );
 }
 
 fn clear_fixed_sabotage(

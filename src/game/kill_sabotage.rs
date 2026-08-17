@@ -40,10 +40,14 @@ impl Plugin for KillSabotagePlugin {
             Update,
             (tick_kill_cds, do_kill, do_report)
                 .chain()
+                .after(super::interaction::process_interactions)
                 .in_set(super::GameSimSet::Resolve)
                 .run_if(in_state(AppState::InGame))
                 .run_if(|p: Res<Paused>| !p.0)
-                .run_if(|ph: Res<GamePhase>| matches!(*ph, GamePhase::Playing))
+                .run_if(|t: Res<Transition<AppState>>| !t.block_input)
+                .run_if(|ph: Res<GamePhase>| {
+                    matches!(*ph, GamePhase::Playing | GamePhase::GameOver { .. })
+                })
                 .run_if(super::has_authority),
         );
     }
@@ -77,13 +81,28 @@ fn do_kill(
     cfg: Res<MatchConfig>,
     mut trauma: ResMut<Trauma>,
     assets: Res<GameAssets>,
+    mut phase: ResMut<GamePhase>,
+    tasks: Res<super::TaskBoard>,
+    stats: Res<super::MatchStats>,
+    mut save: ResMut<crate::save::SaveData>,
+    manager: Res<game_utils_bevy::save::SaveManager>,
+    mut sabotage: ResMut<super::ActiveSabotage>,
     mut actors: Query<(&Transform, &Role, &Player, &mut KillCooldownLeft), With<Alive>>,
     targets: Query<(Entity, &Player, &Transform, &Role, Option<&Children>), With<Alive>>,
     mut sprites: Query<&mut Sprite>,
     gamepads: Query<(Entity, &Gamepad)>,
     mut rumble: MessageWriter<GamepadRumbleRequest>,
 ) {
+    if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
+        for _ in requests.read() {}
+        return;
+    }
+
     for request in requests.read() {
+        if matches!(*phase, GamePhase::GameOver { .. }) {
+            break;
+        }
+
         let actor_id = request.actor_id;
 
         let Some((actor_transform, actor_role, _, mut cd)) = actors
@@ -110,7 +129,13 @@ fn do_kill(
             let d = actor_position.distance(t.translation.truncate());
             if d < best_d {
                 best_d = d;
-                best = Some((e, t.translation.truncate(), p.id, p.name.clone(), p.color_index));
+                best = Some((
+                    e,
+                    t.translation.truncate(),
+                    p.id,
+                    p.name.clone(),
+                    p.color_index,
+                ));
             }
         }
         let Some((victim, pos, id, name, color_index)) = best else {
@@ -146,6 +171,28 @@ fn do_kill(
             Color::srgb(0.9, 0.15, 0.1),
             (50.0, 120.0),
         );
+
+        let mut crew = 0u32;
+        let mut imps = 0u32;
+        for (e, _, _, r, _) in &targets {
+            if e == victim {
+                continue;
+            }
+            match r {
+                Role::Crewmate => crew += 1,
+                Role::Impostor => imps += 1,
+            }
+        }
+        if let Some(crew_win) = super::compute_win_from_counts(&tasks, crew, imps, &stats) {
+            super::apply_game_over(
+                &mut phase,
+                crew_win,
+                &mut save,
+                &manager,
+                Some(&mut sabotage),
+            );
+            break;
+        }
     }
 }
 
@@ -165,19 +212,28 @@ fn report_input(
     });
 }
 
-fn do_report(
+pub(crate) fn do_report(
     mut requests: MessageReader<ReportBody>,
     mut phase: ResMut<GamePhase>,
     mut meeting: ResMut<MeetingState>,
     config: Res<MatchConfig>,
     mut sabotage: ResMut<super::ActiveSabotage>,
+    tasks: Res<super::TaskBoard>,
+    stats: Res<super::MatchStats>,
     reporters: Query<(&Player, &Transform), With<Alive>>,
     mut bodies: Query<(Entity, &mut Body, &Transform)>,
     players: Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
+    living_roles: Query<&Role, (With<Player>, With<Alive>)>,
     mut trauma: ResMut<Trauma>,
 ) {
     for request in requests.read() {
+        if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
+            continue;
+        }
         if !matches!(*phase, GamePhase::Playing) {
+            continue;
+        }
+        if super::compute_win(&tasks, &living_roles, &stats).is_some() {
             continue;
         }
 

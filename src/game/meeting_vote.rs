@@ -28,6 +28,9 @@ pub struct MeetingState {
     /// FIXED: dedicated field instead of stashing the eject id under
     /// votes key 0 (which collided with real ids and double-applied).
     pub pending_eject: Option<u64>,
+    /// Set when an eject (or pre-Results death math) already decides the match.
+    /// Results UI still plays out; sabotage must NOT override this.
+    pub decided_win: Option<bool>,
 }
 
 impl MeetingState {
@@ -44,6 +47,7 @@ impl MeetingState {
         self.local_voted = false;
         self.result_text.clear();
         self.pending_eject = None;
+        self.decided_win = None;
         for (p, alive, _g) in players.iter() {
             self.options.push(VoteOption {
                 player_id: p.id,
@@ -60,6 +64,7 @@ impl MeetingState {
         self.local_voted = false;
         self.result_text.clear();
         self.pending_eject = None;
+        self.decided_win = None;
     }
 
     /// True once every living option has voted. An empty living list resolves
@@ -142,6 +147,7 @@ impl Plugin for MeetingVotePlugin {
         .add_systems(
             Update,
             handle_meeting_commands
+                .after(crate::game::kill_sabotage::do_report)
                 .in_set(super::GameSimSet::Resolve)
                 .run_if(in_state(AppState::InGame))
                 .run_if(|p: Res<Paused>| !p.0)
@@ -180,6 +186,9 @@ fn handle_meeting_commands(
     for cmd in ev.read() {
         match cmd {
             MeetingCommand::Emergency { actor_id } => {
+                if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
+                    continue;
+                }
                 if !matches!(*phase, GamePhase::Playing) || sabotage.is_critical() {
                     continue;
                 }
