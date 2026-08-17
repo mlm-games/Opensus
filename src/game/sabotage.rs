@@ -210,7 +210,7 @@ fn apply_sabotage(
     mut commands: Commands,
     transforms: Query<(&Player, &Transform)>,
 ) {
-    if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
+    if !matches!(*phase, GamePhase::Playing) {
         for _ in actions.read() {}
         return;
     }
@@ -280,11 +280,20 @@ fn tick_sabotage(
     mut sabotage: ResMut<ActiveSabotage>,
     mut cooldown: ResMut<SabotageCooldown>,
 ) {
-    // Cooldown always drains in open play only (meetings pause ship action).
-    if matches!(*phase, GamePhase::Playing) {
-        cooldown.remaining = (cooldown.remaining - time.delta_secs()).max(0.0);
-        if let Some(timer) = sabotage.timer.as_mut() {
-            timer.tick(time.delta());
+    match *phase {
+        GamePhase::None | GamePhase::GameOver { .. } => {}
+        GamePhase::Playing => {
+            cooldown.remaining = (cooldown.remaining - time.delta_secs()).max(0.0);
+            if let Some(timer) = sabotage.timer.as_mut() {
+                timer.tick(time.delta());
+            }
+        }
+        GamePhase::Meeting | GamePhase::Voting | GamePhase::Results => {
+            if sabotage.is_critical()
+                && let Some(timer) = sabotage.timer.as_mut()
+            {
+                timer.tick(time.delta());
+            }
         }
     }
 }
@@ -295,7 +304,8 @@ fn check_sabotage_loss(
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
 ) {
-    if !matches!(*phase, GamePhase::Playing) {
+    // Detonation can end the match from any live phase (including meetings).
+    if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
         return;
     }
     if !sabotage.is_critical() || sabotage.is_fixed() {
@@ -315,9 +325,14 @@ fn check_sabotage_loss(
 }
 
 fn clear_fixed_sabotage(
+    phase: Res<GamePhase>,
     mut sabotage: ResMut<ActiveSabotage>,
     mut stations: Query<(&mut SabotageFixStation, &mut Sprite)>,
 ) {
+    // GameOver ownership of sabotage cleanup lives in cleanup_on_game_over_enter.
+    if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
+        return;
+    }
     if !sabotage.is_fixed() {
         return;
     }

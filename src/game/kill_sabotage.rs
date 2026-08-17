@@ -95,7 +95,7 @@ fn do_kill(
     }
 
     for request in requests.read() {
-        if matches!(*phase, GamePhase::GameOver { .. }) {
+        if !matches!(*phase, GamePhase::Playing) {
             break;
         }
 
@@ -203,13 +203,11 @@ fn report_input(
     });
 }
 
-fn do_report(
+pub(crate) fn do_report(
     mut requests: MessageReader<ReportBody>,
     mut phase: ResMut<GamePhase>,
     mut meeting: ResMut<MeetingState>,
     config: Res<MatchConfig>,
-    mut sabotage: ResMut<super::ActiveSabotage>,
-    mut fix_stations: Query<(&mut super::SabotageFixStation, &mut Sprite)>,
     reporters: Query<(&Player, &Transform), With<Alive>>,
     mut bodies: Query<(Entity, &mut Body, &Transform)>,
     players: Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
@@ -251,16 +249,10 @@ fn do_report(
             body.reported = true;
         }
 
-        // A body report CEASES critical sabotages (O2/Reactor).
-        // Non-critical (Lights) are NOT auto-fixed and persist after the meeting.
-        // Emergency button remains blocked while critical is active (see meeting_vote).
-        if sabotage.is_critical() {
-            sabotage.clear();
-            for (mut station, mut sprite) in &mut fix_stations {
-                station.progress = 0.0;
-                sprite.color = Color::srgba(1.0, 1.0, 1.0, 0.0);
-            }
-        }
+        // CRITICAL sabotages (O2/Reactor) KEEP RUNNING through meetings.
+        // A body report must NOT cancel them — otherwise impostors lose a real
+        // win path whenever a body is found. Lights also persist (AU).
+        // Emergency button stays blocked while critical (see meeting_vote).
 
         ScreenEffects::add_trauma(&mut trauma, 0.4);
 

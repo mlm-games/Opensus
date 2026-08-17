@@ -72,7 +72,7 @@ impl Plugin for PlayerPlugin {
             Update,
             (ai_brain, apply_intent_movement)
                 .chain()
-                .in_set(super::GameSimSet::Resolve)
+                .in_set(super::ResolveStep::Ai)
                 .run_if(in_state(AppState::InGame))
                 .run_if(|p: Res<Paused>| !p.0)
                 .run_if(|t: Res<Transition<AppState>>| !t.block_input)

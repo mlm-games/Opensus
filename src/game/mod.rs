@@ -66,6 +66,7 @@ impl Plugin for GamePlugin {
             .configure_sets(
                 Update,
                 (
+                    ResolveStep::Ai,
                     ResolveStep::Combat,
                     ResolveStep::Interact,
                     ResolveStep::Sabotage,
@@ -133,7 +134,8 @@ pub enum GameSimSet {
 /// Ordered slices inside `GameSimSet::Resolve`.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ResolveStep {
-    Combat,   // kills, reports, kill CD
+    Ai,       // bot brains + non-local movement (authority)
+    Combat,   // kills, reports, emergency meeting commands, kill CD
     Interact, // tasks + sabotage fixes
     Sabotage, // start sabotage, tick, loss, clear-fixed
 }

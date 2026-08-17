@@ -142,6 +142,7 @@ impl Plugin for MeetingVotePlugin {
         .add_systems(
             Update,
             handle_meeting_commands
+                .after(crate::game::do_report)
                 .in_set(super::ResolveStep::Combat)
                 .run_if(in_state(AppState::InGame))
                 .run_if(|p: Res<Paused>| !p.0)

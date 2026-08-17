@@ -15,7 +15,7 @@ impl Plugin for InteractionPlugin {
         app.add_systems(
             Update,
             process_interactions
-                .in_set(super::GameSimSet::Resolve)
+                .in_set(super::ResolveStep::Interact)
                 .run_if(in_state(AppState::InGame))
                 .run_if(|paused: Res<Paused>| !paused.0)
                 .run_if(|transition: Res<Transition<AppState>>| !transition.block_input)
@@ -188,7 +188,6 @@ fn process_interactions(
                 if station.progress >= 1.0 {
                     station.progress = 1.0;
                     sprite.color = Color::srgba(0.45, 0.75, 0.5, 0.9);
-                    sabotage.fixes_done = sabotage.fixes_done.saturating_add(1);
                 }
 
                 fixed_station = true;
@@ -202,6 +201,18 @@ fn process_interactions(
 
         // Priority two: nearest incomplete task.
         try_complete_task(dt, &config, &mut commands, &mut task_board, &mut task_stations, player_position);
+    }
+
+    // Recount completed stations instead of incrementing on complete: survives
+    // partial re-entry / frame glitches without double-counting.
+    if let Some(active_kind) = sabotage.kind
+        && !matches!(active_kind, SabotageKind::Reactor)
+    {
+        let done = fix_stations
+            .iter()
+            .filter(|(_, s, _, _)| s.kind == active_kind && s.progress >= 1.0)
+            .count();
+        sabotage.fixes_done = done.min(sabotage.fixes_needed as usize) as u8;
     }
 
     // Ghosts keep completing tasks (Among Us style); crewmate ghosts only.
