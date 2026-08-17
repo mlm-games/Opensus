@@ -38,6 +38,8 @@ impl WinReason {
 pub enum GamePhase {
     #[default]
     None,
+
+    RoleReveal,
     Playing,
     Meeting,
     Voting,
@@ -47,6 +49,9 @@ pub enum GamePhase {
         reason: WinReason,
     },
 }
+
+#[derive(Resource, Default)]
+pub struct RoleRevealTimer(pub Timer);
 
 #[derive(Resource, Clone, Debug)]
 pub struct MatchConfig {
@@ -60,6 +65,8 @@ pub struct MatchConfig {
     pub discussion_time: f32,
     pub voting_time: f32,
     pub results_time: f32,
+
+    pub role_reveal_time: f32,
 
     pub tasks_to_win: u32,
     pub task_hold_time: f32,
@@ -107,6 +114,7 @@ impl Default for MatchConfig {
             discussion_time: 25.0,
             voting_time: 25.0,
             results_time: 5.0,
+            role_reveal_time: 4.0,
 
             tasks_to_win: 4,
             task_hold_time: 2.0,

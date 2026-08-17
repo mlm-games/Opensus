@@ -1,5 +1,6 @@
 mod assets;
 mod authority;
+mod collision;
 mod interaction;
 mod kill_sabotage;
 mod lobby;
@@ -15,6 +16,7 @@ mod vision;
 
 pub use assets::*;
 pub use authority::*;
+pub use collision::*;
 pub use interaction::*;
 pub use kill_sabotage::*;
 pub use lobby::*;
@@ -48,11 +50,12 @@ impl Plugin for GamePlugin {
             .init_resource::<LocalPlayerId>()
             .init_resource::<MeetingState>()
             .init_resource::<MatchStats>()
+            .init_resource::<RoleRevealTimer>()
             .add_message::<StartMatchRequest>()
             .add_message::<MeetingCommand>()
             .add_message::<KillRequest>()
             .add_message::<ReportBody>()
-            .add_message::<SabotageAction>()
+            // SabotageAction is registered in SabotagePlugin.
             .configure_sets(
                 Update,
                 (
@@ -168,8 +171,12 @@ pub(crate) fn setup_match(
     mut phase: ResMut<GamePhase>,
     mut tasks: ResMut<TaskBoard>,
     mut meeting: ResMut<MeetingState>,
+    cfg: Res<MatchConfig>,
+    mut role_reveal: ResMut<RoleRevealTimer>,
 ) {
-    *phase = GamePhase::Playing;
+    // Role reveal beat first; intents are frozen until it expires.
+    *phase = GamePhase::RoleReveal;
+    role_reveal.0 = Timer::from_seconds(cfg.role_reveal_time, TimerMode::Once);
     tasks.completed = 0;
     // `total` is owned by spawn_task_stations (runs after this system).
     // `MatchStats` is owned exclusively by spawn_players_from_lobby.
@@ -217,6 +224,7 @@ fn tick_phase_timers(
     time: Res<Time>,
     mut phase: ResMut<GamePhase>,
     mut meeting: ResMut<MeetingState>,
+    mut role_reveal: ResMut<RoleRevealTimer>,
     cfg: Res<MatchConfig>,
     tasks: Res<TaskBoard>,
     players: Query<&Role, (With<Player>, With<Alive>)>,
@@ -230,6 +238,12 @@ fn tick_phase_timers(
     }
 
     match *phase {
+        GamePhase::RoleReveal => {
+            role_reveal.0.tick(time.delta());
+            if role_reveal.0.just_finished() {
+                *phase = GamePhase::Playing;
+            }
+        }
         GamePhase::Meeting => {
             meeting.timer.tick(time.delta());
             if meeting.timer.just_finished() {
@@ -267,6 +281,7 @@ fn apply_pending_eject(
     mut commands: Commands,
     mut q: Query<(Entity, &Player, Option<&Children>, &Role), With<Alive>>,
     mut sprites: Query<&mut Sprite>,
+    mut texts: Query<&mut TextColor>,
     mut trauma: ResMut<Trauma>,
 ) {
     // Only consume eject once we've entered Results.
@@ -281,7 +296,7 @@ fn apply_pending_eject(
         if p.id != eid {
             continue;
         }
-        make_ghost(&mut commands, e, children, &mut sprites);
+        make_ghost(&mut commands, e, children, &mut sprites, &mut texts);
         ScreenEffects::add_trauma(&mut trauma, 0.5);
         meeting.result_text = if matches!(role, Role::Impostor) {
             format!("{} was an Impostor.", p.name)

@@ -1,10 +1,11 @@
 use bevy::prelude::*;
-use rand::seq::SliceRandom;
+use rand::seq::{IndexedRandom, SliceRandom};
 
 use super::{
-    Alive, Body, CHARACTER_HEIGHT, EmergenciesLeft, GameAssets, GamePhase, Ghost, KillCooldownLeft,
-    KillRequest, LocalRole, MatchCleanup, MatchConfig, MatchStats, PlayerLayer, ReportBody, Role,
-    SabotageFixContribution, TaskStation, bake_body_tint,
+    ActiveSabotage, Alive, Body, CHARACTER_HEIGHT, EmergenciesLeft, EmergencyButton, GameAssets,
+    GamePhase, Ghost, KillCooldownLeft, KillRequest, LocalRole, MatchCleanup, MatchConfig,
+    MatchStats, PlayerLayer, ReportBody, Role, SabotageFixContribution, SabotageFixStation,
+    TaskStation, bake_body_tint,
 };
 use crate::app::{AppState, Paused};
 use crate::game::RuntimeMode;
@@ -29,6 +30,9 @@ pub struct LocalPlayer;
 #[derive(Resource, Default, Clone, Copy, Debug)]
 pub struct LocalPlayerId(pub Option<u64>);
 
+#[derive(Resource, Default, Clone)]
+pub struct LocalPrompt(pub String);
+
 #[derive(Component, Default, Clone, Copy, Debug)]
 pub struct PlayerIntent {
     pub movement: Vec2,
@@ -41,46 +45,60 @@ pub struct AiPlayer {
     pub action: Timer,
     pub target_task: Option<Entity>,
     pub dir: Vec2,
+
+    pub reported_this_body: bool,
 }
 
 pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            OnEnter(AppState::InGame),
-            spawn_players_from_lobby
-                .after(super::setup_match)
-                .run_if(super::has_authority),
-        )
-        .add_systems(
-            OnExit(AppState::InGame),
-            |mut cam: Query<&mut CameraBase, With<Camera2d>>| {
-                if let Ok(mut base) = cam.single_mut() {
-                    base.translation = Vec3::new(0.0, 0.0, 1000.0);
-                }
-            },
-        )
-        .add_systems(
-            Update,
-            (local_intent_and_move, camera_follow)
-                .chain()
-                .in_set(super::GameSimSet::Input)
-                .run_if(in_state(AppState::InGame))
-                .run_if(|p: Res<Paused>| !p.0)
-                .run_if(|t: Res<Transition<AppState>>| !t.block_input)
-                .run_if(|ph: Res<GamePhase>| matches!(*ph, GamePhase::Playing)),
-        )
-        .add_systems(
-            Update,
-            (ai_brain, ai_ghost_brain, apply_intent_movement)
-                .chain()
-                .in_set(super::ResolveStep::Ai)
-                .run_if(in_state(AppState::InGame))
-                .run_if(|p: Res<Paused>| !p.0)
-                .run_if(|t: Res<Transition<AppState>>| !t.block_input)
-                .run_if(|ph: Res<GamePhase>| matches!(*ph, GamePhase::Playing))
-                .run_if(super::has_authority),
-        );
+        app.init_resource::<LocalPrompt>()
+            .add_systems(
+                OnEnter(AppState::InGame),
+                spawn_players_from_lobby
+                    .after(super::setup_match)
+                    .run_if(super::has_authority),
+            )
+            .add_systems(
+                OnExit(AppState::InGame),
+                |mut cam: Query<&mut CameraBase, With<Camera2d>>| {
+                    if let Ok(mut base) = cam.single_mut() {
+                        base.translation = Vec3::new(0.0, 0.0, 1000.0);
+                    }
+                },
+            )
+            .add_systems(
+                Update,
+                (
+                    local_intent_and_move,
+                    super::collision::resolve_local_solids,
+                    update_local_prompt,
+                    camera_follow,
+                )
+                    .chain()
+                    .in_set(super::GameSimSet::Input)
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(|p: Res<Paused>| !p.0)
+                    .run_if(|t: Res<Transition<AppState>>| !t.block_input)
+                    .run_if(|ph: Res<GamePhase>| matches!(*ph, GamePhase::Playing)),
+            )
+            .add_systems(
+                Update,
+                (
+                    ai_brain,
+                    ai_ghost_brain,
+                    apply_intent_movement,
+                    super::collision::resolve_solids,
+                    face_movement,
+                )
+                    .chain()
+                    .in_set(super::ResolveStep::Ai)
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(|p: Res<Paused>| !p.0)
+                    .run_if(|t: Res<Transition<AppState>>| !t.block_input)
+                    .run_if(|ph: Res<GamePhase>| matches!(*ph, GamePhase::Playing))
+                    .run_if(super::has_authority),
+            );
     }
 }
 
@@ -110,7 +128,7 @@ fn spawn_players_from_lobby(
             is_host: true,
         });
         // bot crewmates for sandbox
-        for i in 0..3 {
+        for i in 0..cfg.bot_count as u64 {
             slots.push(super::lobby::LobbySlot {
                 id: 10 + i,
                 name: format!("Agent-{}", i + 2),
@@ -141,12 +159,12 @@ fn spawn_players_from_lobby(
     let start_positions = [
         Vec2::new(-80.0, 0.0),
         Vec2::new(80.0, 0.0),
-        Vec2::new(0.0, 80.0),
-        Vec2::new(0.0, -80.0),
-        Vec2::new(-120.0, 60.0),
-        Vec2::new(120.0, -60.0),
-        Vec2::new(-60.0, -120.0),
-        Vec2::new(60.0, 120.0),
+        Vec2::new(40.0, 60.0),
+        Vec2::new(0.0, -60.0),
+        Vec2::new(-120.0, 50.0),
+        Vec2::new(100.0, -60.0),
+        Vec2::new(-60.0, -60.0),
+        Vec2::new(60.0, 60.0),
     ];
 
     for (i, slot) in slots.iter().enumerate() {
@@ -230,6 +248,7 @@ fn spawn_players_from_lobby(
                 action: Timer::from_seconds(0.2, TimerMode::Repeating),
                 target_task: None,
                 dir: Vec2::ZERO,
+                reported_this_body: false,
             });
         }
         Juice::pop_in(&mut commands, id, 0.35);
@@ -351,8 +370,12 @@ fn ai_brain(
     phase: Res<GamePhase>,
     mut kill_tx: MessageWriter<KillRequest>,
     mut report_tx: MessageWriter<ReportBody>,
+    mut sabo_tx: MessageWriter<super::SabotageAction>,
+    sabotage: Res<super::ActiveSabotage>,
+    cooldown: Res<super::SabotageCooldown>,
     tasks: Query<(Entity, &Transform, &TaskStation)>,
     bodies: Query<(&Transform, &Body)>,
+    fix_stations: Query<(&super::SabotageFixStation, &Transform), Without<TaskStation>>,
     mut ais: Query<
         (
             Entity,
@@ -379,19 +402,23 @@ fn ai_brain(
         ai.action.tick(time.delta());
         let pos = tf.translation.truncate();
 
-        // 1) Report a nearby body.
+        // 1) Report a nearby body once per approach (no per-frame spam).
         let near_body = bodies
             .iter()
             .filter(|(_, b)| !b.reported)
             .any(|(bt, _)| pos.distance(bt.translation.truncate()) <= cfg.bot_report_range);
         if near_body {
-            report_tx.write(ReportBody {
-                reporter_id: player.id,
-            });
+            if !ai.reported_this_body {
+                report_tx.write(ReportBody {
+                    reporter_id: player.id,
+                });
+                ai.reported_this_body = true;
+            }
             intent.movement = Vec2::ZERO;
             intent.interact = false;
             continue;
         }
+        ai.reported_this_body = false;
 
         // 2) Impostor kill when cooldown is ready.
         if matches!(role, Role::Impostor) {
@@ -404,7 +431,54 @@ fn ai_brain(
             }
         }
 
-        // 3) Walk to a targeted task (crewmates reliably, impostors fake).
+        // 3) Impostor: opportunistic sabotage when nothing is active.
+        if matches!(role, Role::Impostor)
+            && !sabotage.is_active()
+            && cooldown.remaining <= 0.0
+            && ai.action.just_finished()
+            && rand::random::<f32>() < 0.08
+        {
+            let kind = *[
+                super::SabotageKind::Lights,
+                super::SabotageKind::Oxygen,
+                super::SabotageKind::Reactor,
+            ]
+            .choose(&mut rand::rng())
+            .unwrap();
+            sabo_tx.write(super::SabotageAction {
+                actor_id: player.id,
+                kind,
+            });
+        }
+
+        // 4) Crew: active sabotage outranks tasks - path to the nearest
+        //    incomplete fix station and hold E there.
+        if matches!(role, Role::Crewmate)
+            && let Some(kind) = sabotage.kind
+        {
+            let mut best: Option<(f32, Vec2)> = None;
+            for (st, tt) in &fix_stations {
+                if st.kind != kind || st.progress >= 1.0 {
+                    continue;
+                }
+                let d = pos.distance(tt.translation.truncate());
+                if best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, tt.translation.truncate()));
+                }
+            }
+            if let Some((dist, target)) = best {
+                if dist <= cfg.interact_range * 0.85 {
+                    intent.movement = Vec2::ZERO;
+                    intent.interact = true;
+                } else {
+                    intent.movement = (target - pos).normalize_or_zero();
+                    intent.interact = false;
+                }
+                continue;
+            }
+        }
+
+        // 5) Walk to a targeted task (crewmates reliably, impostors fake).
         if ai.repath.just_finished() || ai.target_task.is_none() {
             let mut best: Option<(Entity, f32)> = None;
             for (te, tt, st) in &tasks {
@@ -460,12 +534,7 @@ fn ai_ghost_brain(
     phase: Res<GamePhase>,
     tasks: Query<(Entity, &Transform, &TaskStation)>,
     mut ais: Query<
-        (
-            &Role,
-            &mut AiPlayer,
-            &mut PlayerIntent,
-            &Transform,
-        ),
+        (&Role, &mut AiPlayer, &mut PlayerIntent, &Transform),
         (With<Ghost>, With<AiPlayer>, Without<Alive>),
     >,
 ) {
@@ -534,6 +603,76 @@ fn ai_ghost_brain(
     }
 }
 
+fn update_local_prompt(
+    cfg: Res<MatchConfig>,
+    phase: Res<GamePhase>,
+    sabotage: Res<ActiveSabotage>,
+    local: Query<(&Transform, Option<&Alive>), With<LocalPlayer>>,
+    bodies: Query<(&Transform, &Body)>,
+    tasks: Query<(&Transform, &TaskStation)>,
+    buttons: Query<&Transform, (With<EmergencyButton>, Without<Player>)>,
+    fix: Query<(&Transform, &SabotageFixStation)>,
+    mut prompt: ResMut<LocalPrompt>,
+) {
+    prompt.0.clear();
+    if !matches!(*phase, GamePhase::Playing) {
+        return;
+    }
+    let Ok((tf, alive)) = local.single() else {
+        return;
+    };
+    let pos = tf.translation.truncate();
+
+    if alive.is_some() {
+        if bodies.iter().any(|(bt, b)| {
+            !b.reported && pos.distance(bt.translation.truncate()) <= cfg.report_range
+        }) {
+            prompt.0 = "R - Report body".into();
+            return;
+        }
+        if let Some(kind) = sabotage.kind
+            && fix.iter().any(|(ft, s)| {
+                s.kind == kind
+                    && s.progress < 1.0
+                    && pos.distance(ft.translation.truncate()) <= cfg.interact_range
+            })
+        {
+            prompt.0 = "E - Hold to fix".into();
+            return;
+        }
+        if buttons
+            .iter()
+            .any(|bt| pos.distance(bt.translation.truncate()) <= cfg.interact_range)
+        {
+            prompt.0 = "F - Emergency meeting".into();
+            return;
+        }
+    }
+    if tasks
+        .iter()
+        .any(|(tt, s)| !s.done && pos.distance(tt.translation.truncate()) <= cfg.interact_range)
+    {
+        prompt.0 = "E - Hold to work".into();
+    }
+}
+
+fn face_movement(
+    q: Query<(&PlayerIntent, &Children), Or<(With<Alive>, With<Ghost>)>>,
+    mut layers: Query<&mut Transform, With<PlayerLayer>>,
+) {
+    for (intent, children) in &q {
+        if intent.movement.x.abs() < 0.01 {
+            continue;
+        }
+        let sx = if intent.movement.x >= 0.0 { 1.0 } else { -1.0 };
+        for child in children.iter() {
+            if let Ok(mut tf) = layers.get_mut(child) {
+                tf.scale.x = sx * tf.scale.x.abs();
+            }
+        }
+    }
+}
+
 fn camera_follow(
     time: Res<Time>,
     config: Res<MatchConfig>,
@@ -547,9 +686,18 @@ fn camera_follow(
         return;
     };
 
+    // Keep the camera inside the map bounds, with a margin so it never
+    // frames empty space beyond the outer walls.
+    let margin = Vec2::new(200.0, 140.0);
     let target = Vec3::new(
-        player.translation.x.clamp(-320.0, 320.0),
-        player.translation.y.clamp(-160.0, 160.0),
+        player.translation.x.clamp(
+            -super::MAP_BOUNDS.x + margin.x,
+            super::MAP_BOUNDS.x - margin.x,
+        ),
+        player.translation.y.clamp(
+            -super::MAP_BOUNDS.y + margin.y,
+            super::MAP_BOUNDS.y - margin.y,
+        ),
         1000.0,
     );
 

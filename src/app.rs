@@ -142,10 +142,13 @@ pub struct SharedUi {
     pub vote_options: Vec<(u64, String, bool)>, // id, name, dead
     pub my_voted: bool,
     pub result_text: String,
+    pub vote_tallies: Vec<(String, u32)>,
     pub player_name: String,
     pub color_index: u8,
     pub sabotage_kind: Option<String>,
     pub sabotage_remaining: f32,
+    pub sabotage_cooldown: f32,
+    pub interact_prompt: String,
     pub lights_out: bool,
     pub local_alive: bool,
     pub local_player_id: Option<u64>,
@@ -183,10 +186,13 @@ impl Default for SharedUi {
             vote_options: Vec::new(),
             my_voted: false,
             result_text: String::new(),
+            vote_tallies: Vec::new(),
             player_name: "Agent".to_string(),
             color_index: 0,
             sabotage_kind: None,
             sabotage_remaining: 0.0,
+            sabotage_cooldown: 0.0,
+            interact_prompt: String::new(),
             lights_out: false,
             local_alive: true,
             local_player_id: None,
@@ -382,13 +388,22 @@ fn sync_shared_game(
     meeting: Option<Res<crate::game::MeetingState>>,
     local_role: Option<Res<crate::game::LocalRole>>,
     sabotage: Option<Res<crate::game::ActiveSabotage>>,
+    role_reveal: Option<Res<crate::game::RoleRevealTimer>>,
+    cooldown: Option<Res<crate::game::SabotageCooldown>>,
+    prompt: Option<Res<crate::game::LocalPrompt>>,
     local_alive_q: Query<(), (With<crate::game::LocalPlayer>, With<crate::game::Alive>)>,
     local_player_id: Option<Res<crate::game::LocalPlayerId>>,
 ) {
     let Ok(mut ui) = bridge.shared.lock() else {
         return;
     };
-    ui.game_phase = game_phase.map(|g| *g).unwrap_or(GamePhase::None);
+    let phase_value = game_phase.map(|g| *g).unwrap_or(GamePhase::None);
+    ui.game_phase = phase_value;
+    if matches!(phase_value, GamePhase::RoleReveal) {
+        ui.phase_timer = role_reveal
+            .map(|r| r.0.remaining_secs().max(0.0))
+            .unwrap_or(0.0);
+    }
     if let Some(lobby) = lobby {
         ui.lobby_slots = lobby.slots.clone();
         ui.local_ready = lobby.local_ready;
@@ -422,12 +437,14 @@ fn sync_shared_game(
             .collect();
         ui.my_voted = m.local_voted;
         ui.result_text = m.result_text.clone();
+        ui.vote_tallies = m.tallies.clone();
     } else {
         ui.phase_timer = 0.0;
         ui.meeting_prompt.clear();
         ui.vote_options.clear();
         ui.my_voted = false;
         ui.result_text.clear();
+        ui.vote_tallies.clear();
     }
     if let Some(s) = sabotage {
         ui.sabotage_kind = s.kind.map(|k| format!("{k:?}"));
@@ -438,6 +455,8 @@ fn sync_shared_game(
         ui.sabotage_remaining = 0.0;
         ui.lights_out = false;
     }
+    ui.sabotage_cooldown = cooldown.map(|c| c.remaining).unwrap_or(0.0);
+    ui.interact_prompt = prompt.map(|p| p.0.clone()).unwrap_or_default();
     ui.local_alive = !local_alive_q.is_empty();
     ui.local_player_id = local_player_id.and_then(|id| id.0);
 }

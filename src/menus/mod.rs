@@ -116,6 +116,11 @@ pub fn compose_root(
             ZStack(Modifier::new().fill_max_size()).child((
                 hud,
                 AnimatedVisibility(
+                    matches!(st.game_phase, GamePhase::RoleReveal),
+                    role_reveal_overlay(&st),
+                    popup_anim_config("role_reveal"),
+                ),
+                AnimatedVisibility(
                     matches!(
                         st.game_phase,
                         GamePhase::Meeting | GamePhase::Voting | GamePhase::Results
@@ -486,6 +491,9 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         ))
         .size(16.0)
         .color(col(180, 180, 220)),
+    ));
+
+    hud_col = hud_col.child((
         if let Some(kind) = &st.sabotage_kind {
             let time_part = if st.sabotage_remaining > 0.0 {
                 format!(" - {:.0}s", st.sabotage_remaining)
@@ -495,6 +503,22 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             RText(format!("⚠ SABOTAGE: {kind}{time_part} (hold E at station)"))
                 .size(16.0)
                 .color(col(235, 160, 40))
+        } else {
+            spacer(1.0)
+        },
+        if matches!(st.my_role, Some(Role::Impostor)) && st.sabotage_cooldown > 0.0 {
+            RText(format!(
+                "{}: {:.0}s",
+                t(tr, "sabotage-cooldown", "Sabotage CD"),
+                st.sabotage_cooldown
+            ))
+            .size(16.0)
+            .color(col(200, 140, 140))
+        } else {
+            spacer(1.0)
+        },
+        if !st.interact_prompt.is_empty() {
+            RText(st.interact_prompt.clone()).size(18.0).color(p_cyan())
         } else {
             spacer(1.0)
         },
@@ -510,6 +534,51 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     hud_col
 }
 
+fn role_reveal_overlay(st: &SharedUi) -> View {
+    let tr = &st.translations;
+    let (title, color, hint) = match st.my_role {
+        Some(Role::Impostor) => (
+            t(tr, "impostor", "IMPOSTOR"),
+            col(200, 70, 70),
+            t(tr, "impostor-hint", "Kill crewmates. Sabotage. Blend in."),
+        ),
+        Some(Role::Crewmate) => (
+            t(tr, "crewmate", "CREWMATE"),
+            col(80, 180, 220),
+            t(tr, "crewmate-hint", "Finish tasks. Find the impostor."),
+        ),
+        None => ("...".to_string(), RColor::WHITE, String::new()),
+    };
+
+    Column(
+        Modifier::new()
+            .fill_max_size()
+            .justify_content(JustifyContent::CENTER)
+            .align_items(AlignItems::CENTER)
+            .background(RColor::from_rgba(0, 0, 0, 220))
+            .z_index(80.0)
+            .input_blocker(),
+    )
+    .child(
+        Column(
+            Modifier::new()
+                .padding(32.0)
+                .gap(8.0)
+                .align_items(AlignItems::CENTER),
+        )
+        .child((
+            RText(t(tr, "you-are", "You are"))
+                .size(22.0)
+                .color(p_text_dim()),
+            RText(title).size(56.0).color(color),
+            RText(hint).size(16.0).color(p_text()),
+            RText(format!("{:.0}", st.phase_timer.max(0.0)))
+                .size(22.0)
+                .color(p_cyan()),
+        )),
+    )
+}
+
 fn meeting_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let tr = &st.translations;
     let phase_label = match st.game_phase {
@@ -520,7 +589,11 @@ fn meeting_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     };
 
     let mut votes = Column(Modifier::new().gap(6.0));
-    if matches!(st.game_phase, GamePhase::Voting) && !st.my_voted && st.local_alive {
+    if matches!(st.game_phase, GamePhase::Results) {
+        for (name, n) in &st.vote_tallies {
+            votes = votes.child(RText(format!("{name}: {n}")).size(15.0).color(p_text()));
+        }
+    } else if matches!(st.game_phase, GamePhase::Voting) && !st.my_voted && st.local_alive {
         for (id, name, dead) in &st.vote_options {
             if *dead {
                 continue;

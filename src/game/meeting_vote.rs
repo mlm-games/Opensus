@@ -25,8 +25,9 @@ pub struct MeetingState {
     pub votes: HashMap<u64, Option<u64>>, // voter -> Some(target) | None = skip
     pub local_voted: bool,
     pub result_text: String,
-    /// FIXED: dedicated field instead of stashing the eject id under
-    /// votes key 0 (which collided with real ids and double-applied).
+
+    pub tallies: Vec<(String, u32)>,
+
     pub pending_eject: Option<u64>,
 }
 
@@ -43,6 +44,7 @@ impl MeetingState {
         self.votes.clear();
         self.local_voted = false;
         self.result_text.clear();
+        self.tallies.clear();
         self.pending_eject = None;
         for (p, alive, _g) in players.iter() {
             self.options.push(VoteOption {
@@ -59,6 +61,7 @@ impl MeetingState {
         self.votes.clear();
         self.local_voted = false;
         self.result_text.clear();
+        self.tallies.clear();
         self.pending_eject = None;
     }
 
@@ -93,6 +96,23 @@ impl MeetingState {
             .collect();
 
         self.pending_eject = None;
+
+        // Store the per-candidate tally for the Results screen.
+        self.tallies.clear();
+        self.tallies.reserve(tallies.len());
+        for (target, count) in &tallies {
+            let label = match target {
+                None => "Skip".into(),
+                Some(id) => self
+                    .options
+                    .iter()
+                    .find(|o| o.player_id == *id)
+                    .map(|o| o.name.clone())
+                    .unwrap_or_else(|| "?".into()),
+            };
+            self.tallies.push((label, *count));
+        }
+        self.tallies.sort_by_key(|t| std::cmp::Reverse(t.1));
 
         if maximum == 0 || leaders.len() != 1 || leaders[0].is_none() {
             self.result_text = "No one was ejected. (Skip / Tie)".into();

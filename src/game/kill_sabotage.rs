@@ -86,6 +86,7 @@ fn do_kill(
     mut actors: Query<(&Transform, &Role, &Player, &mut KillCooldownLeft), With<Alive>>,
     targets: Query<(Entity, &Player, &Transform, &Role, Option<&Children>), With<Alive>>,
     mut sprites: Query<&mut Sprite>,
+    mut texts: Query<&mut TextColor>,
     gamepads: Query<(Entity, &Gamepad)>,
     mut rumble: MessageWriter<GamepadRumbleRequest>,
 ) {
@@ -140,7 +141,7 @@ fn do_kill(
         cd.0 = cfg.kill_cooldown;
 
         let children = targets.get(victim).ok().and_then(|t| t.4);
-        make_ghost(&mut commands, victim, children, &mut sprites);
+        make_ghost(&mut commands, victim, children, &mut sprites, &mut texts);
 
         commands.spawn((
             MatchCleanup,

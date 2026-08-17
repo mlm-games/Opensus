@@ -48,6 +48,7 @@ pub fn make_ghost(
     entity: Entity,
     children: Option<&Children>,
     sprites: &mut Query<&mut Sprite>,
+    texts: &mut Query<&mut TextColor>,
 ) {
     commands
         .entity(entity)
@@ -68,6 +69,11 @@ pub fn make_ghost(
         for child in children.iter() {
             if let Ok(mut sprite) = sprites.get_mut(child) {
                 sprite.color = sprite.color.with_alpha(0.35);
+            }
+            // Fade the name tag too, not just the body layers.
+            if let Ok(mut tc) = texts.get_mut(child) {
+                let c = tc.0;
+                tc.0 = c.with_alpha(0.35);
             }
         }
     }
