@@ -274,27 +274,32 @@ fn apply_sabotage(
     }
 }
 
+/// Hide/reset every fix station and clear the sabotage resource.
+pub fn clear_sabotage_world(
+    sabotage: &mut ActiveSabotage,
+    stations: &mut Query<(&mut SabotageFixStation, &mut Sprite)>,
+) {
+    sabotage.clear();
+    for (mut station, mut sprite) in stations.iter_mut() {
+        station.progress = 0.0;
+        sprite.color = Color::srgba(1.0, 1.0, 1.0, 0.0);
+    }
+}
+
 fn tick_sabotage(
     time: Res<Time>,
     phase: Res<GamePhase>,
     mut sabotage: ResMut<ActiveSabotage>,
     mut cooldown: ResMut<SabotageCooldown>,
 ) {
-    match *phase {
-        GamePhase::None | GamePhase::GameOver { .. } => {}
-        GamePhase::Playing => {
-            cooldown.remaining = (cooldown.remaining - time.delta_secs()).max(0.0);
-            if let Some(timer) = sabotage.timer.as_mut() {
-                timer.tick(time.delta());
-            }
-        }
-        GamePhase::Meeting | GamePhase::Voting | GamePhase::Results => {
-            if sabotage.is_critical()
-                && let Some(timer) = sabotage.timer.as_mut()
-            {
-                timer.tick(time.delta());
-            }
-        }
+    cooldown.remaining = (cooldown.remaining - time.delta_secs()).max(0.0);
+
+    // Critical timers only run in open play. Meetings cancel sabotage on start
+    // (Among Us body-report / emergency rule), so nothing can detonate mid-meeting.
+    if matches!(*phase, GamePhase::Playing)
+        && let Some(timer) = sabotage.timer.as_mut()
+    {
+        timer.tick(time.delta());
     }
 }
 
@@ -304,43 +309,26 @@ fn check_sabotage_loss(
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
 ) {
-    // Detonation can end the match from any live phase (including meetings).
-    if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
+    if !matches!(*phase, GamePhase::Playing) {
         return;
     }
     if !sabotage.is_critical() || sabotage.is_fixed() {
         return;
     }
+    // `is_finished` not `just_finished` — never miss after a hitch/skip.
     let expired = sabotage.timer.as_ref().is_some_and(|t| t.is_finished());
     if !expired {
         return;
     }
-    super::apply_game_over(
-        &mut phase,
-        false,
-        super::WinReason::CriticalSabotage,
-        &mut save,
-        &manager,
-    );
+    super::apply_game_over(&mut phase, super::WinReason::Sabotage, &mut save, &manager);
 }
 
 fn clear_fixed_sabotage(
-    phase: Res<GamePhase>,
     mut sabotage: ResMut<ActiveSabotage>,
     mut stations: Query<(&mut SabotageFixStation, &mut Sprite)>,
 ) {
-    // GameOver ownership of sabotage cleanup lives in cleanup_on_game_over_enter.
-    if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
-        return;
-    }
     if !sabotage.is_fixed() {
         return;
     }
-
-    sabotage.clear();
-
-    for (mut station, mut sprite) in &mut stations {
-        station.progress = 0.0;
-        sprite.color = Color::srgba(1.0, 1.0, 1.0, 0.0);
-    }
+    clear_sabotage_world(&mut sabotage, &mut stations);
 }

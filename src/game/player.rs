@@ -48,7 +48,9 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             OnEnter(AppState::InGame),
-            spawn_players_from_lobby.run_if(super::has_authority),
+            spawn_players_from_lobby
+                .after(super::setup_match)
+                .run_if(super::has_authority),
         )
         .add_systems(
             OnExit(AppState::InGame),
@@ -70,7 +72,7 @@ impl Plugin for PlayerPlugin {
         )
         .add_systems(
             Update,
-            (ai_brain, apply_intent_movement)
+            (ai_brain, ai_ghost_brain, apply_intent_movement)
                 .chain()
                 .in_set(super::ResolveStep::Ai)
                 .run_if(in_state(AppState::InGame))
@@ -263,10 +265,17 @@ fn local_intent_and_move(
         (&Player, &mut PlayerIntent, &mut Transform),
         (With<LocalPlayer>, With<Alive>),
     >,
-    mut ghosts: Query<(&Player, &mut Transform), (With<LocalPlayer>, With<Ghost>, Without<Alive>)>,
+    mut ghosts: Query<
+        (&Player, &mut PlayerIntent, &mut Transform),
+        (With<LocalPlayer>, With<Ghost>, Without<Alive>),
+    >,
 ) {
     if !matches!(*phase, GamePhase::Playing) {
         if let Ok((_, mut intent, _)) = living.single_mut() {
+            intent.movement = Vec2::ZERO;
+            intent.interact = false;
+        }
+        if let Ok((_, mut intent, _)) = ghosts.single_mut() {
             intent.movement = Vec2::ZERO;
             intent.interact = false;
         }
@@ -286,12 +295,14 @@ fn local_intent_and_move(
         return;
     }
 
-    if let Ok((player, mut transform)) = ghosts.single_mut() {
+    if let Ok((player, mut intent, mut transform)) = ghosts.single_mut() {
+        intent.movement = dir;
+        intent.interact = keys.pressed(KeyCode::KeyE);
         if matches!(*mode, RuntimeMode::Client) {
             return;
         }
         let speed = player.speed * cfg.ghost_speed_mul;
-        transform.translation += (dir * speed * time.delta_secs()).extend(0.0);
+        transform.translation += (intent.movement * speed * time.delta_secs()).extend(0.0);
         clamp_pos(&mut transform);
     }
 }
@@ -434,6 +445,87 @@ fn ai_brain(
                 }
             } else {
                 ai.target_task = None;
+            }
+        } else {
+            intent.movement = ai.dir;
+            intent.interact = false;
+        }
+    }
+}
+
+/// Dead crew AI still push the task bar (Among Us).
+fn ai_ghost_brain(
+    time: Res<Time>,
+    cfg: Res<MatchConfig>,
+    phase: Res<GamePhase>,
+    tasks: Query<(Entity, &Transform, &TaskStation)>,
+    mut ais: Query<
+        (
+            &Role,
+            &mut AiPlayer,
+            &mut PlayerIntent,
+            &Transform,
+        ),
+        (With<Ghost>, With<AiPlayer>, Without<Alive>),
+    >,
+) {
+    if !matches!(*phase, GamePhase::Playing) {
+        for (_, _, mut intent, _) in &mut ais {
+            intent.movement = Vec2::ZERO;
+            intent.interact = false;
+        }
+        return;
+    }
+
+    for (role, mut ai, mut intent, tf) in &mut ais {
+        if !matches!(role, Role::Crewmate) {
+            intent.movement = Vec2::ZERO;
+            intent.interact = false;
+            continue;
+        }
+
+        ai.repath.tick(time.delta());
+        let pos = tf.translation.truncate();
+
+        if ai.repath.just_finished() || ai.target_task.is_none() {
+            let mut best: Option<(Entity, f32)> = None;
+            for (te, tt, st) in &tasks {
+                if st.done {
+                    continue;
+                }
+                let d = pos.distance(tt.translation.truncate());
+                if best.is_none_or(|(_, bd)| d < bd) {
+                    best = Some((te, d));
+                }
+            }
+            ai.target_task = best.map(|(e, _)| e);
+            if ai.target_task.is_none() {
+                let angle = rand::random::<f32>() * std::f32::consts::TAU;
+                ai.dir = Vec2::new(angle.cos(), angle.sin());
+            }
+        }
+
+        if let Some(tid) = ai.target_task {
+            if let Ok((_, tt, st)) = tasks.get(tid) {
+                if st.done {
+                    ai.target_task = None;
+                    intent.interact = false;
+                    intent.movement = ai.dir;
+                    continue;
+                }
+                let delta = tt.translation.truncate() - pos;
+                let dist = delta.length();
+                if dist <= cfg.interact_range * 0.85 {
+                    intent.movement = Vec2::ZERO;
+                    intent.interact = true;
+                } else {
+                    intent.movement = delta.normalize_or_zero();
+                    intent.interact = false;
+                }
+            } else {
+                ai.target_task = None;
+                intent.movement = ai.dir;
+                intent.interact = false;
             }
         } else {
             intent.movement = ai.dir;

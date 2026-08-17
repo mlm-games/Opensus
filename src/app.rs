@@ -147,6 +147,8 @@ pub struct SharedUi {
     pub sabotage_kind: Option<String>,
     pub sabotage_remaining: f32,
     pub lights_out: bool,
+    pub local_alive: bool,
+    pub local_player_id: Option<u64>,
     pub ui_lab_bg: Option<repose_core::ImageHandle>,
     pub ui_background: Option<repose_core::ImageHandle>,
 }
@@ -186,6 +188,8 @@ impl Default for SharedUi {
             sabotage_kind: None,
             sabotage_remaining: 0.0,
             lights_out: false,
+            local_alive: true,
+            local_player_id: None,
             ui_lab_bg: None,
             ui_background: None,
         }
@@ -378,6 +382,8 @@ fn sync_shared_game(
     meeting: Option<Res<crate::game::MeetingState>>,
     local_role: Option<Res<crate::game::LocalRole>>,
     sabotage: Option<Res<crate::game::ActiveSabotage>>,
+    local_alive_q: Query<(), (With<crate::game::LocalPlayer>, With<crate::game::Alive>)>,
+    local_player_id: Option<Res<crate::game::LocalPlayerId>>,
 ) {
     let Ok(mut ui) = bridge.shared.lock() else {
         return;
@@ -432,6 +438,8 @@ fn sync_shared_game(
         ui.sabotage_remaining = 0.0;
         ui.lights_out = false;
     }
+    ui.local_alive = !local_alive_q.is_empty();
+    ui.local_player_id = local_player_id.and_then(|id| id.0);
 }
 
 fn tick_pending_unpause(
@@ -477,10 +485,17 @@ fn process_ui_actions(
     let Ok(mut q) = bridge.actions.lock() else {
         return;
     };
-    let local_id = lobby
-        .as_ref()
-        .and_then(|l| l.slots.iter().find(|s| s.is_local))
-        .map(|s| s.id);
+    let local_id = bridge
+        .shared
+        .lock()
+        .ok()
+        .and_then(|ui| ui.local_player_id)
+        .or_else(|| {
+            lobby
+                .as_ref()
+                .and_then(|l| l.slots.iter().find(|s| s.is_local))
+                .map(|s| s.id)
+        });
     for action in q.drain(..) {
         match action {
             UiAction::PlayOffline => {

@@ -14,12 +14,13 @@ pub enum WinReason {
     ImpostorsEliminated,
     /// Living impostors >= living crewmates.
     ImpostorMajority,
-    /// O2 / Reactor timer-likes expired.
-    CriticalSabotage,
+    /// O2 / Reactor timer expired.
+    Sabotage,
 }
 
 impl WinReason {
-    pub fn crew_win(self) -> bool {
+    #[inline]
+    pub const fn crew_win(self) -> bool {
         matches!(self, Self::Tasks | Self::ImpostorsEliminated)
     }
 
@@ -28,7 +29,7 @@ impl WinReason {
             Self::Tasks => "All tasks completed",
             Self::ImpostorsEliminated => "All impostors eliminated",
             Self::ImpostorMajority => "Impostors reached majority",
-            Self::CriticalSabotage => "Critical sabotage detonated",
+            Self::Sabotage => "Critical sabotage succeeded",
         }
     }
 }

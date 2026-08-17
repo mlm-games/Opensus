@@ -55,7 +55,10 @@ pub fn make_ghost(
         .remove::<KillCooldownLeft>()
         .remove::<EmergenciesLeft>()
         .remove::<SabotageFixContribution>()
-        .insert(Ghost);
+        .insert(Ghost)
+        // Zero intent so a corpse can't "hold E" from its last living frame
+        // and keeps a stale movement vector forever.
+        .insert(super::PlayerIntent::default());
 
     if let Ok(mut sprite) = sprites.get_mut(entity) {
         sprite.color = sprite.color.with_alpha(sprite.color.alpha().min(0.35));

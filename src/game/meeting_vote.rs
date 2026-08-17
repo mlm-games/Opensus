@@ -170,7 +170,8 @@ fn handle_meeting_commands(
     mut phase: ResMut<GamePhase>,
     mut meeting: ResMut<MeetingState>,
     cfg: Res<MatchConfig>,
-    sabotage: Res<ActiveSabotage>,
+    mut sabotage: ResMut<ActiveSabotage>,
+    mut fix_stations: Query<(&mut super::SabotageFixStation, &mut Sprite)>,
     players: Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
     mut living: Query<(&Player, &mut EmergenciesLeft), With<Alive>>,
     positions: Query<(&Player, &Transform), With<Alive>>,
@@ -181,9 +182,6 @@ fn handle_meeting_commands(
     for cmd in ev.read() {
         match cmd {
             MeetingCommand::Emergency { actor_id } => {
-                if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
-                    continue;
-                }
                 if !matches!(*phase, GamePhase::Playing) || sabotage.is_critical() {
                     continue;
                 }
@@ -209,6 +207,11 @@ fn handle_meeting_commands(
                 }
                 left.0 -= 1;
                 ScreenEffects::add_trauma(&mut trauma, 0.35);
+
+                if !sabotage.is_critical() {
+                    super::clear_sabotage_world(&mut sabotage, &mut fix_stations);
+                }
+
                 meeting.begin_meeting("Emergency Meeting!".into(), &players, cfg.discussion_time);
                 *phase = GamePhase::Meeting;
             }

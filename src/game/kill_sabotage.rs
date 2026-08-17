@@ -179,9 +179,8 @@ fn do_kill(
                 Role::Impostor => imps += 1,
             }
         }
-        if let Some((crew_win, reason)) = super::compute_win_from_counts(&tasks, crew, imps, &stats)
-        {
-            super::apply_game_over(&mut phase, crew_win, reason, &mut save, &manager);
+        if let Some(reason) = super::compute_win_from_counts(&tasks, crew, imps, &stats) {
+            super::apply_game_over(&mut phase, reason, &mut save, &manager);
             break;
         }
     }
@@ -208,6 +207,8 @@ pub(crate) fn do_report(
     mut phase: ResMut<GamePhase>,
     mut meeting: ResMut<MeetingState>,
     config: Res<MatchConfig>,
+    mut sabotage: ResMut<super::ActiveSabotage>,
+    mut fix_stations: Query<(&mut super::SabotageFixStation, &mut Sprite)>,
     reporters: Query<(&Player, &Transform), With<Alive>>,
     mut bodies: Query<(Entity, &mut Body, &Transform)>,
     players: Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
@@ -249,10 +250,7 @@ pub(crate) fn do_report(
             body.reported = true;
         }
 
-        // CRITICAL sabotages (O2/Reactor) KEEP RUNNING through meetings.
-        // A body report must NOT cancel them — otherwise impostors lose a real
-        // win path whenever a body is found. Lights also persist (AU).
-        // Emergency button stays blocked while critical (see meeting_vote).
+        super::clear_sabotage_world(&mut sabotage, &mut fix_stations);
 
         ScreenEffects::add_trauma(&mut trauma, 0.4);
 

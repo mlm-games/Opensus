@@ -520,7 +520,7 @@ fn meeting_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     };
 
     let mut votes = Column(Modifier::new().gap(6.0));
-    if matches!(st.game_phase, GamePhase::Voting) && !st.my_voted {
+    if matches!(st.game_phase, GamePhase::Voting) && !st.my_voted && st.local_alive {
         for (id, name, dead) in &st.vote_options {
             if *dead {
                 continue;
