@@ -33,7 +33,11 @@ pub fn run() {
                     primary_window: Some(primary_window),
                     ..default()
                 })
-                .set(ImagePlugin::default_nearest()),
+                .set(ImagePlugin::default_nearest())
+                .set(AssetPlugin {
+                    file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets").to_string(),
+                    ..default()
+                }),
         )
         .add_plugins(AppPlugin)
         .run();

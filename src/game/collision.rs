@@ -11,7 +11,15 @@ pub struct SolidAabb {
 
 pub fn resolve_local_solids(
     solids: Query<(&Transform, &SolidAabb), Without<Player>>,
-    mut bodies: Query<&mut Transform, (With<LocalPlayer>, Or<(With<Alive>, With<Ghost>)>)>,
+    mut bodies: Query<
+        &mut Transform,
+        (
+            With<LocalPlayer>,
+            Without<Player>,
+            Without<SolidAabb>,
+            Or<(With<Alive>, With<Ghost>)>,
+        ),
+    >,
 ) {
     let boxes: Vec<(Vec2, Vec2)> = solids
         .iter()
@@ -24,7 +32,15 @@ pub fn resolve_local_solids(
 
 pub fn resolve_solids(
     solids: Query<(&Transform, &SolidAabb), Without<Player>>,
-    mut bodies: Query<&mut Transform, (Without<LocalPlayer>, Or<(With<Alive>, With<Ghost>)>)>,
+    mut bodies: Query<
+        &mut Transform,
+        (
+            Without<LocalPlayer>,
+            Without<Player>,
+            Without<SolidAabb>,
+            Or<(With<Alive>, With<Ghost>)>,
+        ),
+    >,
 ) {
     let boxes: Vec<(Vec2, Vec2)> = solids
         .iter()
