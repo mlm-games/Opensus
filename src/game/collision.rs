@@ -137,8 +137,7 @@ pub(crate) fn step_player_position(
     let longest_axis = displacement.x.abs().max(displacement.y.abs());
     let substeps = (longest_axis / MAX_SUBSTEP_DISTANCE)
         .ceil()
-        .max(1.0)
-        .min(128.0) as usize;
+        .clamp(1.0, 128.0) as usize;
 
     let step = displacement / substeps as f32;
 
