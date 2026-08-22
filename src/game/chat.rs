@@ -11,7 +11,10 @@ pub const CHAT_LOG_CAP: usize = 50;
 
 #[derive(Clone, Debug)]
 pub struct ChatEntry {
-    #[allow(dead_code, reason = "Kept for ghost-filtering follow-up; identity is server-derived")]
+    #[allow(
+        dead_code,
+        reason = "Kept for ghost-filtering follow-up; identity is server-derived"
+    )]
     pub player_id: u64,
     pub name: String,
     pub text: String,
@@ -56,8 +59,7 @@ impl Plugin for ChatPlugin {
                 Update,
                 (
                     capture_chat_text.run_if(chat_open),
-                    apply_authority_chat
-                        .run_if(|mode: Res<RuntimeMode>| mode.has_authority()),
+                    apply_authority_chat.run_if(|mode: Res<RuntimeMode>| mode.has_authority()),
                 )
                     .run_if(in_state(AppState::InGame)),
             );

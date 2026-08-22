@@ -11,18 +11,40 @@ struct NavNode {
 
 fn nodes() -> Vec<NavNode> {
     vec![
-        NavNode { pos: Vec2::new(-280.0, 120.0) }, // 0 Archives
-        NavNode { pos: Vec2::new(280.0, 120.0) },  // 1 Comms
-        NavNode { pos: Vec2::new(-280.0, -120.0) }, // 2 Reactor
-        NavNode { pos: Vec2::new(280.0, -120.0) }, // 3 Medbay
-        NavNode { pos: Vec2::new(0.0, 0.0) },      // 4 Cafeteria (hub)
+        NavNode {
+            pos: Vec2::new(-280.0, 120.0),
+        }, // 0 Archives
+        NavNode {
+            pos: Vec2::new(280.0, 120.0),
+        }, // 1 Comms
+        NavNode {
+            pos: Vec2::new(-280.0, -120.0),
+        }, // 2 Reactor
+        NavNode {
+            pos: Vec2::new(280.0, -120.0),
+        }, // 3 Medbay
+        NavNode {
+            pos: Vec2::new(0.0, 0.0),
+        }, // 4 Cafeteria (hub)
         // Doorway waypoints (approx gap centers)
-        NavNode { pos: Vec2::new(-145.0, 55.0) }, // 5 Archives<->Cafeteria
-        NavNode { pos: Vec2::new(145.0, 55.0) },  // 6 Comms<->Cafeteria
-        NavNode { pos: Vec2::new(-290.0, 0.0) },  // 7 Archives<->Reactor
-        NavNode { pos: Vec2::new(295.0, 0.0) },   // 8 Comms<->Medbay
-        NavNode { pos: Vec2::new(-40.0, -80.0) }, // 9 Cafeteria south-west door
-        NavNode { pos: Vec2::new(40.0, -80.0) },  // 10 Cafeteria south-east door
+        NavNode {
+            pos: Vec2::new(-145.0, 55.0),
+        }, // 5 Archives<->Cafeteria
+        NavNode {
+            pos: Vec2::new(145.0, 55.0),
+        }, // 6 Comms<->Cafeteria
+        NavNode {
+            pos: Vec2::new(-290.0, 0.0),
+        }, // 7 Archives<->Reactor
+        NavNode {
+            pos: Vec2::new(295.0, 0.0),
+        }, // 8 Comms<->Medbay
+        NavNode {
+            pos: Vec2::new(-40.0, -80.0),
+        }, // 9 Cafeteria south-west door
+        NavNode {
+            pos: Vec2::new(40.0, -80.0),
+        }, // 10 Cafeteria south-east door
     ]
 }
 

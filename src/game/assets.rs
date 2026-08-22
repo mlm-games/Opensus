@@ -24,9 +24,15 @@ pub struct GameAssets {
     pub task_burner: Handle<Image>,
     #[allow(dead_code, reason = "Loaded with game art; kept for future avatars")]
     pub player_placeholder: Handle<Image>,
-    #[allow(dead_code, reason = "Uploaded to Repose at startup by ensure_ui_images")]
+    #[allow(
+        dead_code,
+        reason = "Uploaded to Repose at startup by ensure_ui_images"
+    )]
     pub ui_lab_bg: Handle<Image>,
-    #[allow(dead_code, reason = "Uploaded to Repose at startup by ensure_ui_images")]
+    #[allow(
+        dead_code,
+        reason = "Uploaded to Repose at startup by ensure_ui_images"
+    )]
     pub ui_background: Handle<Image>,
 }
 
@@ -76,10 +82,26 @@ impl GameAssets {
             table: load_handle(asset_server, &mut handles, "sprites/map/table.png"),
             seat: load_handle(asset_server, &mut handles, "sprites/map/seat.png"),
             door: load_handle(asset_server, &mut handles, "sprites/map/door.png"),
-            task_beaker: load_handle(asset_server, &mut handles, "items/ingame_texture/beaker-empty.png"),
-            task_flask: load_handle(asset_server, &mut handles, "items/ingame_texture/flask-empty.png"),
-            task_burner: load_handle(asset_server, &mut handles, "items/ingame_texture/gas_burner.png"),
-            player_placeholder: load_handle(asset_server, &mut handles, "sprites/ui/player_placeholder.png"),
+            task_beaker: load_handle(
+                asset_server,
+                &mut handles,
+                "items/ingame_texture/beaker-empty.png",
+            ),
+            task_flask: load_handle(
+                asset_server,
+                &mut handles,
+                "items/ingame_texture/flask-empty.png",
+            ),
+            task_burner: load_handle(
+                asset_server,
+                &mut handles,
+                "items/ingame_texture/gas_burner.png",
+            ),
+            player_placeholder: load_handle(
+                asset_server,
+                &mut handles,
+                "sprites/ui/player_placeholder.png",
+            ),
             ui_lab_bg: load_handle(asset_server, &mut handles, "sprites/ui/lab-bg.png"),
             ui_background: load_handle(asset_server, &mut handles, "sprites/ui/background.png"),
         };

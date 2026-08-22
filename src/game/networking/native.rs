@@ -11,10 +11,10 @@ use renet2_netcode::{
 
 use crate::app::AppState;
 use crate::game::{
-    ActiveSabotage, Alive, Body, ChatEntry, ChatState, EmergenciesLeft, GamePhase, Ghost,
-    KillCooldownLeft, KillRequest, LobbySlot, LobbyState, LocalPlayer, LocalPlayerId, MatchConfig,
-    MeetingCommand, MeetingState, OutgoingChat, Player, PlayerIntent, ReportBody, Role,
-    RuntimeMode, SabotageAction, TaskBoard, CHAT_MAX_LEN,
+    ActiveSabotage, Alive, Body, CHAT_MAX_LEN, ChatEntry, ChatState, EmergenciesLeft, GamePhase,
+    Ghost, KillCooldownLeft, KillRequest, LobbySlot, LobbyState, LocalPlayer, LocalPlayerId,
+    MatchConfig, MeetingCommand, MeetingState, OutgoingChat, Player, PlayerIntent, ReportBody,
+    Role, RuntimeMode, SabotageAction, TaskBoard,
 };
 
 use super::PendingNetworkStart;
@@ -558,14 +558,11 @@ fn host_receive_reliable_packets(
                     if text.is_empty() {
                         continue;
                     }
-                    let Some(player_id) =
-                        mappings.client_to_player.get(&client_id).copied()
-                    else {
+                    let Some(player_id) = mappings.client_to_player.get(&client_id).copied() else {
                         continue;
                     };
                     // Identity from the connection mapping — never from the packet.
-                    let Some((player, alive)) =
-                        players.iter().find(|(p, _)| p.id == player_id)
+                    let Some((player, alive)) = players.iter().find(|(p, _)| p.id == player_id)
                     else {
                         continue;
                     };
@@ -724,7 +721,14 @@ fn host_send_world_snapshots(
     sabotage: Option<Res<ActiveSabotage>>,
     tasks: Option<Res<TaskBoard>>,
     meeting: Option<Res<MeetingState>>,
-    players_q: Query<(&Player, &Transform, Option<&Alive>, Option<&Role>, Option<&KillCooldownLeft>, Option<&EmergenciesLeft>)>,
+    players_q: Query<(
+        &Player,
+        &Transform,
+        Option<&Alive>,
+        Option<&Role>,
+        Option<&KillCooldownLeft>,
+        Option<&EmergenciesLeft>,
+    )>,
     bodies: Query<(Entity, &Body, &Transform)>,
     mut mappings: ResMut<NetworkMappings>,
 ) {
@@ -776,9 +780,7 @@ fn host_send_world_snapshots(
         })
     });
 
-    let (tasks_completed, tasks_total) = tasks
-        .map(|t| (t.completed, t.total))
-        .unwrap_or((0, 0));
+    let (tasks_completed, tasks_total) = tasks.map(|t| (t.completed, t.total)).unwrap_or((0, 0));
     let (meeting_prompt, meeting_timer, vote_options, result_text) = meeting
         .as_ref()
         .map(|m| {
@@ -803,10 +805,17 @@ fn host_send_world_snapshots(
     for client_id in client_ids {
         let player_id = mappings.client_to_player.get(&client_id).copied();
         let private = player_id.and_then(|pid| {
-            let (_, _, _, role, cd, em) = players_q.iter().find(|(p, _, _, _, _, _)| p.id == pid)?;
+            let (_, _, _, role, cd, em) =
+                players_q.iter().find(|(p, _, _, _, _, _)| p.id == pid)?;
             let role = role.copied()?;
-            let voted = meeting.as_ref().map(|m| m.votes.contains_key(&pid)).unwrap_or(false);
-            let tallies = meeting.as_ref().map(|m| m.tallies.clone()).unwrap_or_default();
+            let voted = meeting
+                .as_ref()
+                .map(|m| m.votes.contains_key(&pid))
+                .unwrap_or(false);
+            let tallies = meeting
+                .as_ref()
+                .map(|m| m.tallies.clone())
+                .unwrap_or_default();
             Some(PrivatePlayerState {
                 kill_cooldown: cd.map(|c| c.0).unwrap_or(0.0),
                 emergencies_left: em.map(|e| e.0).unwrap_or(0),
@@ -860,7 +869,11 @@ fn client_receive_packets(
     )>,
     replica_bodies: Query<(Entity, &ReplicaBody)>,
     mut local_state: Query<
-        (Entity, Option<&mut crate::game::KillCooldownLeft>, Option<&mut crate::game::EmergenciesLeft>),
+        (
+            Entity,
+            Option<&mut crate::game::KillCooldownLeft>,
+            Option<&mut crate::game::EmergenciesLeft>,
+        ),
         With<crate::game::LocalPlayer>,
     >,
 ) {
@@ -965,8 +978,8 @@ fn client_receive_packets(
                 sab.kind = Some(s.kind);
                 sab.fixes_needed = s.fixes_needed;
                 sab.fixes_done = s.fixes_done;
-                sab.timer = (s.remaining > 0.0)
-                    .then(|| Timer::from_seconds(s.remaining, TimerMode::Once));
+                sab.timer =
+                    (s.remaining > 0.0).then(|| Timer::from_seconds(s.remaining, TimerMode::Once));
             } else {
                 sab.clear();
             }
@@ -998,12 +1011,16 @@ fn client_receive_packets(
                 if let Some(mut cd) = cd_opt {
                     cd.0 = p.kill_cooldown;
                 } else if p.kill_cooldown > 0.0 {
-                    commands.entity(entity).insert(crate::game::KillCooldownLeft(p.kill_cooldown));
+                    commands
+                        .entity(entity)
+                        .insert(crate::game::KillCooldownLeft(p.kill_cooldown));
                 }
                 if let Some(mut em) = em_opt {
                     em.0 = p.emergencies_left;
                 } else {
-                    commands.entity(entity).insert(crate::game::EmergenciesLeft(p.emergencies_left));
+                    commands
+                        .entity(entity)
+                        .insert(crate::game::EmergenciesLeft(p.emergencies_left));
                 }
             }
         }
@@ -1013,14 +1030,7 @@ fn client_receive_packets(
         for state in players {
             seen_players.push(state.player_id);
 
-            if let Some((
-                entity,
-                _,
-                mut transform,
-                mut sprite,
-                alive,
-                ghost,
-            )) = replica_players
+            if let Some((entity, _, mut transform, mut sprite, alive, ghost)) = replica_players
                 .iter_mut()
                 .find(|(_, marker, ..)| marker.player_id == state.player_id)
             {

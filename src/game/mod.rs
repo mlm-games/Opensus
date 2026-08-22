@@ -1,4 +1,5 @@
 mod assets;
+mod audio;
 mod authority;
 mod chat;
 mod collision;
@@ -17,6 +18,7 @@ mod tasks;
 mod vision;
 
 pub use assets::*;
+pub use audio::*;
 pub use authority::*;
 pub use chat::*;
 pub use collision::*;
@@ -93,6 +95,7 @@ impl Plugin for GamePlugin {
                 VisionPlugin,
                 NetworkingPlugin,
                 ChatPlugin,
+                GameAudioPlugin,
                 GameAssetsPlugin,
             ))
             .add_systems(OnEnter(AppState::InGame), setup_match)

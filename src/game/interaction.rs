@@ -46,7 +46,8 @@ fn reactor_fix_global(
             living.iter().any(|(_, role, intent, pt)| {
                 matches!(role, Role::Crewmate)
                     && intent.interact
-                    && pt.translation
+                    && pt
+                        .translation
                         .truncate()
                         .distance(transform.translation.truncate())
                         <= config.interact_range
@@ -209,7 +210,14 @@ fn process_interactions(
         }
 
         // Priority two: nearest incomplete task.
-        try_complete_task(dt, &config, &mut commands, &mut task_board, &mut task_stations, player_position);
+        try_complete_task(
+            dt,
+            &config,
+            &mut commands,
+            &mut task_board,
+            &mut task_stations,
+            player_position,
+        );
     }
 
     // Recount completed stations instead of incrementing on complete: survives

@@ -103,10 +103,7 @@ fn update_mask(
     local_role: Res<super::LocalRole>,
     masks: Res<VisionMasks>,
     local: Query<(&Transform, Option<&Ghost>), With<LocalPlayer>>,
-    mut mask: Query<
-        (&mut Transform, &mut Sprite, &mut Visibility),
-        With<VisionMask>,
-    >,
+    mut mask: Query<(&mut Transform, &mut Sprite, &mut Visibility), With<VisionMask>>,
 ) {
     let Ok((player_transform, ghost)) = local.single() else {
         return;
@@ -130,9 +127,7 @@ fn update_mask(
 
     sprite.image = match local_role.0 {
         Some(Role::Impostor) => masks.impostor.clone(),
-        Some(Role::Crewmate)
-            if matches!(sabotage.kind, Some(SabotageKind::Lights)) =>
-        {
+        Some(Role::Crewmate) if matches!(sabotage.kind, Some(SabotageKind::Lights)) => {
             masks.lights.clone()
         }
         _ => masks.crew.clone(),

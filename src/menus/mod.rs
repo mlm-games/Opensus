@@ -653,13 +653,25 @@ fn meeting_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .clip_rounded(14.0)
             .align_items(AlignItems::CENTER),
     )
-    .child(RText(t(tr, "emergency-meeting", "Meeting")).size(32.0).color(p_cyan()))
+    .child(
+        RText(t(tr, "emergency-meeting", "Meeting"))
+            .size(32.0)
+            .color(p_cyan()),
+    )
     .child(RText(phase_label).size(18.0).color(p_text_dim()))
-    .child(RText(format!("{:.0}s", st.phase_timer)).size(16.0).color(p_text_dim()))
+    .child(
+        RText(format!("{:.0}s", st.phase_timer))
+            .size(16.0)
+            .color(p_text_dim()),
+    )
     .child(spacer(8.0))
     .child(RText(st.meeting_prompt.clone()).size(18.0).color(p_text()))
     .child(spacer(8.0))
-    .child(RText(st.result_text.clone()).size(18.0).color(col(220, 200, 120)))
+    .child(
+        RText(st.result_text.clone())
+            .size(18.0)
+            .color(col(220, 200, 120)),
+    )
     .child(chat_col)
     .child(spacer(8.0))
     .child(votes);

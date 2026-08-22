@@ -603,7 +603,10 @@ fn process_ui_actions(
             }
             UiAction::PlayAgain => {
                 // Online sessions must not silently become Local; route through Title to disconnect.
-                if matches!(*runtime_mode, crate::game::RuntimeMode::Host | crate::game::RuntimeMode::Client) {
+                if matches!(
+                    *runtime_mode,
+                    crate::game::RuntimeMode::Host | crate::game::RuntimeMode::Client
+                ) {
                     *pending_network = crate::game::PendingNetworkStart::None;
                     // Keep mode until Title cleanup disconnects transport; don't switch to Local here.
                     if let Some(ref mut gp) = game_phase {
@@ -780,7 +783,10 @@ fn sync_virtual_time_with_pause(
 ) {
     // Online hosts/clients should not freeze authoritative simulation via virtual pause.
     // Pause becomes a local overlay only in networked modes.
-    if matches!(*mode, crate::game::RuntimeMode::Host | crate::game::RuntimeMode::Client) {
+    if matches!(
+        *mode,
+        crate::game::RuntimeMode::Host | crate::game::RuntimeMode::Client
+    ) {
         if virtual_time.is_paused() {
             virtual_time.unpause();
         }
