@@ -154,6 +154,7 @@ pub struct SharedUi {
     pub local_player_id: Option<u64>,
     pub chat_entries: Vec<(String, String, bool)>, // name, text, ghost
     pub chat_buffer: String,
+    pub chat_is_ghost_channel: bool,
     pub ui_lab_bg: Option<repose_core::ImageHandle>,
     pub ui_background: Option<repose_core::ImageHandle>,
 }
@@ -200,6 +201,7 @@ impl Default for SharedUi {
             local_player_id: None,
             chat_entries: Vec::new(),
             chat_buffer: String::new(),
+            chat_is_ghost_channel: false,
             ui_lab_bg: None,
             ui_background: None,
         }
@@ -469,14 +471,20 @@ fn sync_shared_game(
     ui.interact_prompt = prompt.map(|p| p.0.clone()).unwrap_or_default();
     ui.local_alive = !local_alive_q.is_empty();
     ui.local_player_id = local_player_id.and_then(|id| id.0);
-    ui.chat_entries = chat
-        .map(|c| {
-            c.entries
-                .iter()
-                .map(|e| (e.name.clone(), e.text.clone(), e.ghost))
-                .collect()
-        })
-        .unwrap_or_default();
+    // Chat (ghost isolation)
+    ui.chat_entries.clear();
+    if let Some(chat) = chat.as_ref() {
+        let viewer_is_ghost = !ui.local_alive;
+        let filtered: Vec<_> = chat.visible_to(viewer_is_ghost).collect();
+        let start = filtered.len().saturating_sub(8);
+        for entry in filtered[start..].iter() {
+            ui.chat_entries
+                .push((entry.name.clone(), entry.text.clone(), entry.ghost));
+        }
+        ui.chat_is_ghost_channel = viewer_is_ghost;
+    } else {
+        ui.chat_is_ghost_channel = false;
+    }
     ui.chat_buffer = chat_buffer.map(|b| b.0.clone()).unwrap_or_default();
 }
 

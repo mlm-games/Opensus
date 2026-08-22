@@ -637,10 +637,20 @@ fn meeting_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 .child(RText(text.clone()).size(14.0).color(RColor::WHITE)),
         );
     }
+    let input_label = if st.chat_is_ghost_channel {
+        format!("> [ghost] {}_", st.chat_buffer)
+    } else {
+        format!("> {}_", st.chat_buffer)
+    };
+
     chat_col = chat_col.child(
-        RText(format!("> {}_", st.chat_buffer))
+        RText(input_label)
             .size(14.0)
-            .color(col(160, 220, 160)),
+            .color(if st.chat_is_ghost_channel {
+                col(150, 150, 200)
+            } else {
+                col(160, 220, 160)
+            }),
     );
 
     let panel = Column(

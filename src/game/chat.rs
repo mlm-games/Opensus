@@ -13,7 +13,7 @@ pub const CHAT_LOG_CAP: usize = 50;
 pub struct ChatEntry {
     #[allow(
         dead_code,
-        reason = "Kept for ghost-filtering follow-up; identity is server-derived"
+        reason = "reserved for ghost-filtering / log identity; read in tests"
     )]
     pub player_id: u64,
     pub name: String,
@@ -23,6 +23,7 @@ pub struct ChatEntry {
 
 #[derive(Resource, Default)]
 pub struct ChatState {
+    /// Full authoritative log (host/local). Clients may store only what they received.
     pub entries: VecDeque<ChatEntry>,
 }
 
@@ -37,12 +38,21 @@ impl ChatState {
     pub fn clear(&mut self) {
         self.entries.clear();
     }
+
+    /// Viewer rules:
+    /// - living  → living messages only
+    /// - ghost   → everything
+    pub fn visible_to(&self, viewer_is_ghost: bool) -> impl Iterator<Item = &ChatEntry> {
+        self.entries
+            .iter()
+            .filter(move |entry| viewer_is_ghost || !entry.ghost)
+    }
 }
 
 #[derive(Resource, Default)]
 pub struct ChatInputBuffer(pub String);
 
-/// The local player submitted a chat line (any runtime mode).
+/// Local player submitted a chat line (any runtime mode).
 #[derive(Message, Clone, Debug)]
 pub struct OutgoingChat(pub String);
 
@@ -129,5 +139,40 @@ fn apply_authority_chat(
             text: text.clone(),
             ghost: alive.is_none(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(id: u64, ghost: bool) -> ChatEntry {
+        ChatEntry {
+            player_id: id,
+            name: format!("P{id}"),
+            text: "hi".into(),
+            ghost,
+        }
+    }
+
+    #[test]
+    fn living_viewer_hides_ghost_messages() {
+        let mut chat = ChatState::default();
+        chat.push(entry(1, false));
+        chat.push(entry(2, true));
+        chat.push(entry(3, false));
+
+        let visible: Vec<_> = chat.visible_to(false).map(|e| e.player_id).collect();
+        assert_eq!(visible, vec![1, 3]);
+    }
+
+    #[test]
+    fn ghost_viewer_sees_everything() {
+        let mut chat = ChatState::default();
+        chat.push(entry(1, false));
+        chat.push(entry(2, true));
+
+        let visible: Vec<_> = chat.visible_to(true).map(|e| e.player_id).collect();
+        assert_eq!(visible, vec![1, 2]);
     }
 }

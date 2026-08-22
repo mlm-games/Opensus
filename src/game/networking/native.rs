@@ -427,6 +427,8 @@ fn client_send_chat(
 fn host_relay_local_chat(
     mut outgoing: MessageReader<OutgoingChat>,
     server: Option<ResMut<NetServerRes>>,
+    mappings: Res<NetworkMappings>,
+    players: Query<(&Player, Option<&Alive>)>,
     local: Query<(&Player, Option<&Alive>), With<LocalPlayer>>,
 ) {
     let Some(mut server) = server else { return };
@@ -434,14 +436,31 @@ fn host_relay_local_chat(
         let Ok((player, alive)) = local.single() else {
             continue;
         };
+        let ghost = alive.is_none();
         let packet = ServerPacket::Chat {
             player_id: player.id,
             name: player.name.clone(),
             text: text.clone(),
-            ghost: alive.is_none(),
+            ghost,
         };
-        if let Ok(bytes) = bincode::serialize(&packet) {
-            server.0.broadcast_message(S2C_RELIABLE, bytes);
+        let Ok(bytes) = bincode::serialize(&packet) else {
+            continue;
+        };
+        for client_id in server.0.clients_id() {
+            let Some(recipient_player_id) = mappings.client_to_player.get(&client_id).copied()
+            else {
+                continue;
+            };
+            let recipient_is_ghost = players
+                .iter()
+                .find_map(|(p, a)| (p.id == recipient_player_id).then_some(a.is_none()))
+                .unwrap_or(true);
+            if ghost && !recipient_is_ghost {
+                continue;
+            }
+            server
+                .0
+                .send_message(client_id, S2C_RELIABLE, bytes.clone());
         }
     }
 }
@@ -567,11 +586,12 @@ fn host_receive_reliable_packets(
                         continue;
                     };
 
+                    let ghost = alive.is_none();
                     let entry = ChatEntry {
                         player_id,
                         name: player.name.clone(),
                         text: text.clone(),
-                        ghost: alive.is_none(),
+                        ghost,
                     };
                     chat.push(entry);
 
@@ -579,10 +599,27 @@ fn host_receive_reliable_packets(
                         player_id,
                         name: player.name.clone(),
                         text,
-                        ghost: alive.is_none(),
+                        ghost,
                     };
-                    if let Ok(bytes) = bincode::serialize(&packet) {
-                        server.0.broadcast_message(S2C_RELIABLE, bytes);
+                    let Ok(bytes) = bincode::serialize(&packet) else {
+                        continue;
+                    };
+                    for recipient_client_id in server.0.clients_id() {
+                        let Some(recipient_player_id) =
+                            mappings.client_to_player.get(&recipient_client_id).copied()
+                        else {
+                            continue;
+                        };
+                        let recipient_is_ghost = players
+                            .iter()
+                            .find_map(|(p, a)| (p.id == recipient_player_id).then_some(a.is_none()))
+                            .unwrap_or(true);
+                        if ghost && !recipient_is_ghost {
+                            continue;
+                        }
+                        server
+                            .0
+                            .send_message(recipient_client_id, S2C_RELIABLE, bytes.clone());
                     }
                 }
                 ClientPacket::Input { .. } => {}
