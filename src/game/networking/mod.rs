@@ -15,12 +15,38 @@ pub mod channels;
 pub mod protocol;
 
 #[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
-mod native;
+mod bootstrap;
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+mod cleanup;
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+mod client;
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+mod common;
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+mod host;
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+mod transport;
 
 use bevy::prelude::*;
 
 #[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
-pub use native::*;
+#[allow(unused_imports)]
+pub use bootstrap::*;
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+#[allow(unused_imports)]
+pub use cleanup::*;
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+#[allow(unused_imports)]
+pub use client::*;
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+#[allow(unused_imports)]
+pub use common::*;
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+#[allow(unused_imports)]
+pub use host::*;
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+#[allow(unused_imports)]
+pub use transport::*;
 
 #[derive(Resource, Default, Clone, Debug)]
 #[allow(
@@ -46,5 +72,106 @@ impl Plugin for NetworkingPlugin {
 
         #[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
         app.add_plugins(NativeNetworkingPlugin);
+    }
+}
+
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+enum NativeNetSet {
+    Bootstrap,
+    ReceiveTransport,
+    ReceivePackets,
+    SendPackets,
+    FlushTransport,
+}
+
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+pub struct NativeNetworkingPlugin;
+
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+impl Plugin for NativeNetworkingPlugin {
+    fn build(&self, app: &mut App) {
+        use crate::game::networking::common::{
+            ClientSnapshotSequence, NetworkIdentity, NetworkMappings, ServerSnapshotSequence,
+        };
+        use crate::game::networking::common::{LobbyBroadcastTimer, SnapshotTimer};
+
+        const SNAPSHOT_HZ: f32 = 20.0;
+        const LOBBY_BROADCAST_HZ: f32 = 5.0;
+
+        app.init_resource::<NetworkIdentity>()
+            .init_resource::<NetworkMappings>()
+            .init_resource::<ServerSnapshotSequence>()
+            .init_resource::<ClientSnapshotSequence>()
+            .insert_resource(LobbyBroadcastTimer(Timer::from_seconds(
+                1.0 / LOBBY_BROADCAST_HZ,
+                TimerMode::Repeating,
+            )))
+            .insert_resource(SnapshotTimer(Timer::from_seconds(
+                1.0 / SNAPSHOT_HZ,
+                TimerMode::Repeating,
+            )))
+            .configure_sets(
+                PreUpdate,
+                (
+                    NativeNetSet::Bootstrap,
+                    NativeNetSet::ReceiveTransport,
+                    NativeNetSet::ReceivePackets,
+                )
+                    .chain(),
+            )
+            .configure_sets(
+                PostUpdate,
+                (NativeNetSet::SendPackets, NativeNetSet::FlushTransport).chain(),
+            )
+            .add_systems(
+                PreUpdate,
+                bootstrap::bootstrap_network.in_set(NativeNetSet::Bootstrap),
+            )
+            .add_systems(
+                PreUpdate,
+                (
+                    transport::update_server_transport,
+                    transport::update_client_transport,
+                    host::host_handle_connects_and_disconnects,
+                )
+                    .chain()
+                    .in_set(NativeNetSet::ReceiveTransport),
+            )
+            .add_systems(
+                PreUpdate,
+                (
+                    client::client_send_hello_once,
+                    client::client_send_ready,
+                    host::host_receive_reliable_packets,
+                    host::host_receive_input_packets,
+                )
+                    .chain()
+                    .in_set(NativeNetSet::ReceivePackets),
+            )
+            .add_systems(
+                PostUpdate,
+                (
+                    host::host_broadcast_lobby_snapshot,
+                    host::host_send_match_started,
+                    host::host_send_world_snapshots,
+                    host::host_relay_local_chat,
+                    client::client_receive_packets,
+                    client::client_send_input_packets,
+                    client::client_send_actions,
+                    client::client_send_chat,
+                )
+                    .chain()
+                    .in_set(NativeNetSet::SendPackets),
+            )
+            .add_systems(
+                PostUpdate,
+                (
+                    transport::send_server_packets,
+                    transport::send_client_packets,
+                )
+                    .in_set(NativeNetSet::FlushTransport),
+            )
+            .add_systems(Update, cleanup::cleanup_network_on_title);
     }
 }
