@@ -95,6 +95,8 @@ fn do_kill(
         return;
     }
 
+    let mut killed_this_frame = std::collections::HashSet::<Entity>::new();
+
     for request in requests.read() {
         if !matches!(*phase, GamePhase::Playing) {
             break;
@@ -138,6 +140,10 @@ fn do_kill(
         let Some((victim, pos, id, name, color_index)) = best else {
             continue;
         };
+        if killed_this_frame.contains(&victim) {
+            continue;
+        }
+        killed_this_frame.insert(victim);
         cd.0 = cfg.kill_cooldown;
 
         let children = targets.get(victim).ok().and_then(|t| t.4);

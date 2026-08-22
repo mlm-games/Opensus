@@ -55,22 +55,31 @@ fn reactor_fix_global(
         .map(|(entity, _, _, _)| entity)
         .collect();
 
-    if held.len() >= 2 {
-        for entity in held.iter().take(2) {
-            if let Ok((_, mut station, mut sprite, _)) = fix_stations.get_mut(*entity) {
-                station.progress += dt / config.sabotage_fix_time.max(0.1);
-                if station.progress >= 1.0 {
-                    station.progress = 1.0;
-                    sprite.color = Color::srgba(0.45, 0.75, 0.5, 0.9);
-                }
+    if held.len() < 2 {
+        for (_, mut station, mut sprite, _) in fix_stations.iter_mut() {
+            if station.kind == SabotageKind::Reactor {
+                station.progress = 0.0;
+                sprite.color = Color::srgba(1.0, 0.6, 0.15, 1.0);
             }
         }
-        let done = fix_stations
-            .iter()
-            .filter(|(_, s, _, _)| s.kind == SabotageKind::Reactor && s.progress >= 1.0)
-            .count();
-        sabotage.fixes_done = done.min(2) as u8;
+        sabotage.fixes_done = 0;
+        return;
     }
+
+    for entity in held.iter().take(2) {
+        if let Ok((_, mut station, mut sprite, _)) = fix_stations.get_mut(*entity) {
+            station.progress += dt / config.sabotage_fix_time.max(0.1);
+            if station.progress >= 1.0 {
+                station.progress = 1.0;
+                sprite.color = Color::srgba(0.45, 0.75, 0.5, 0.9);
+            }
+        }
+    }
+    let done = fix_stations
+        .iter()
+        .filter(|(_, s, _, _)| s.kind == SabotageKind::Reactor && s.progress >= 1.0)
+        .count();
+    sabotage.fixes_done = done.min(2) as u8;
 }
 
 fn try_complete_task(

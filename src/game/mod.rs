@@ -6,6 +6,7 @@ mod kill_sabotage;
 mod lobby;
 mod map;
 mod meeting_vote;
+mod navigation;
 mod networking;
 mod phases;
 mod player;
@@ -310,14 +311,12 @@ fn apply_pending_eject(
 fn ensure_bot_votes(
     phase: Res<GamePhase>,
     mut meeting: ResMut<MeetingState>,
-    players: Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
-    local_id: Res<LocalPlayerId>,
+    bots: Query<&Player, (With<crate::game::player::AiPlayer>, With<Alive>)>,
 ) {
     if !matches!(*phase, GamePhase::Voting) {
         return;
     }
-    let skip = local_id.0.unwrap_or(u64::MAX);
-    crate::game::meeting_vote::bot_votes_public(&mut meeting, &players, skip);
+    crate::game::meeting_vote::cast_missing_bot_votes(&mut meeting, &bots);
 }
 
 /// Living crew / impostor counts (Alive only).
@@ -405,6 +404,7 @@ pub fn apply_game_over(
     }
     let crew_win = reason.crew_win();
     *phase = GamePhase::GameOver { crew_win, reason };
+    info!("GameOver: crew_win={crew_win} reason={reason:?}");
     save.games_played = save.games_played.saturating_add(1);
     if crew_win {
         save.crew_wins = save.crew_wins.saturating_add(1);

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use super::{Alive, Ghost, LocalPlayer, MAP_BOUNDS, Player};
+use super::{Alive, LocalPlayer, MAP_BOUNDS, Player};
 
 const PLAYER_RADIUS: f32 = 14.0;
 
@@ -14,10 +14,10 @@ pub fn resolve_local_solids(
     mut bodies: Query<
         &mut Transform,
         (
+            With<Player>,
             With<LocalPlayer>,
-            Without<Player>,
+            With<Alive>,
             Without<SolidAabb>,
-            Or<(With<Alive>, With<Ghost>)>,
         ),
     >,
 ) {
@@ -35,10 +35,10 @@ pub fn resolve_solids(
     mut bodies: Query<
         &mut Transform,
         (
+            With<Player>,
+            With<Alive>,
             Without<LocalPlayer>,
-            Without<Player>,
             Without<SolidAabb>,
-            Or<(With<Alive>, With<Ghost>)>,
         ),
     >,
 ) {

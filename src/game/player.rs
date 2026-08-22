@@ -107,7 +107,6 @@ fn spawn_players_from_lobby(
     lobby: Res<LobbyState>,
     cfg: Res<MatchConfig>,
     save: Res<SaveData>,
-    mode: Res<RuntimeMode>,
     assets: Res<GameAssets>,
     mut images: ResMut<Assets<Image>>,
     mut local_role: ResMut<LocalRole>,
@@ -126,6 +125,7 @@ fn spawn_players_from_lobby(
             ready: true,
             is_local: true,
             is_host: true,
+            is_bot: false,
         });
         // bot crewmates for sandbox
         for i in 0..cfg.bot_count as u64 {
@@ -137,6 +137,7 @@ fn spawn_players_from_lobby(
                 ready: true,
                 is_local: false,
                 is_host: false,
+                is_bot: true,
             });
         }
     }
@@ -242,7 +243,7 @@ fn spawn_players_from_lobby(
         let id = e.id();
         if slot.is_local {
             e.insert(LocalPlayer);
-        } else if matches!(*mode, RuntimeMode::Local | RuntimeMode::Host) {
+        } else if slot.is_bot {
             e.insert(AiPlayer {
                 repath: Timer::from_seconds(0.4, TimerMode::Repeating),
                 action: Timer::from_seconds(0.2, TimerMode::Repeating),
@@ -376,6 +377,7 @@ fn ai_brain(
     tasks: Query<(Entity, &Transform, &TaskStation)>,
     bodies: Query<(&Transform, &Body)>,
     fix_stations: Query<(&super::SabotageFixStation, &Transform), Without<TaskStation>>,
+    solids: Query<(&Transform, &super::SolidAabb)>,
     mut ais: Query<
         (
             Entity,
@@ -396,6 +398,11 @@ fn ai_brain(
         }
         return;
     }
+
+    let solid_boxes: Vec<(Vec2, Vec2)> = solids
+        .iter()
+        .map(|(t, s)| (t.translation.truncate(), s.half_extents))
+        .collect();
 
     for (_e, player, role, mut ai, mut intent, tf, kill_cd) in &mut ais {
         ai.repath.tick(time.delta());
@@ -471,7 +478,8 @@ fn ai_brain(
                     intent.movement = Vec2::ZERO;
                     intent.interact = true;
                 } else {
-                    intent.movement = (target - pos).normalize_or_zero();
+                    let wp = crate::game::navigation::next_waypoint(pos, target, &solid_boxes);
+                    intent.movement = (wp - pos).normalize_or_zero();
                     intent.interact = false;
                 }
                 continue;
@@ -508,13 +516,14 @@ fn ai_brain(
                     intent.movement = ai.dir;
                     continue;
                 }
-                let delta = tt.translation.truncate() - pos;
-                let dist = delta.length();
+                let target = tt.translation.truncate();
+                let dist = pos.distance(target);
                 if dist <= cfg.interact_range * 0.85 {
                     intent.movement = Vec2::ZERO;
                     intent.interact = matches!(role, Role::Crewmate);
                 } else {
-                    intent.movement = delta.normalize_or_zero();
+                    let wp = crate::game::navigation::next_waypoint(pos, target, &solid_boxes);
+                    intent.movement = (wp - pos).normalize_or_zero();
                     intent.interact = false;
                 }
             } else {

@@ -24,3 +24,13 @@ jobs:
       include-android: true
       upload-artifacts: true
       app-slug: opensus
+
+  ci-native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - run: cargo check --features "dev,networking-native"
+      - run: cargo clippy --all-targets --features "dev,networking-native" -- -D warnings
+      - run: cargo test --features "dev,networking-native"

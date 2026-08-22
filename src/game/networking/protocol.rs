@@ -41,6 +41,15 @@ pub struct NetSabotageState {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PrivatePlayerState {
+    pub kill_cooldown: f32,
+    pub emergencies_left: u8,
+    pub role: Role,
+    pub voted: bool,
+    pub vote_tallies: Vec<(String, u32)>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ClientPacket {
     Hello {
         protocol_version: u32,
@@ -92,6 +101,7 @@ pub enum ServerPacket {
         meeting_timer: f32,
         vote_options: Vec<(u64, String, bool)>,
         result_text: String,
+        private: Option<PrivatePlayerState>,
     },
     Chat {
         player_id: u64,

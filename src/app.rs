@@ -399,11 +399,6 @@ fn sync_shared_game(
     };
     let phase_value = game_phase.map(|g| *g).unwrap_or(GamePhase::None);
     ui.game_phase = phase_value;
-    if matches!(phase_value, GamePhase::RoleReveal) {
-        ui.phase_timer = role_reveal
-            .map(|r| r.0.remaining_secs().max(0.0))
-            .unwrap_or(0.0);
-    }
     if let Some(lobby) = lobby {
         ui.lobby_slots = lobby.slots.clone();
         ui.local_ready = lobby.local_ready;
@@ -427,8 +422,18 @@ fn sync_shared_game(
     ui.kill_cd = kill_cd;
     ui.emergencies_left = em;
     ui.my_role = local_role.and_then(|r| r.0);
+    ui.phase_timer = match phase_value {
+        GamePhase::RoleReveal => role_reveal
+            .as_ref()
+            .map(|timer| timer.0.remaining_secs().max(0.0))
+            .unwrap_or(0.0),
+        GamePhase::Meeting | GamePhase::Voting | GamePhase::Results => meeting
+            .as_ref()
+            .map(|meeting| meeting.timer.remaining_secs().max(0.0))
+            .unwrap_or(0.0),
+        _ => 0.0,
+    };
     if let Some(m) = meeting {
-        ui.phase_timer = m.timer.remaining_secs().max(0.0);
         ui.meeting_prompt = m.prompt.clone();
         ui.vote_options = m
             .options
@@ -439,7 +444,6 @@ fn sync_shared_game(
         ui.result_text = m.result_text.clone();
         ui.vote_tallies = m.tallies.clone();
     } else {
-        ui.phase_timer = 0.0;
         ui.meeting_prompt.clear();
         ui.vote_options.clear();
         ui.my_voted = false;
@@ -516,6 +520,7 @@ fn process_ui_actions(
                 .map(|s| s.id)
         });
     for action in q.drain(..) {
+        info!("UI action: {action:?}");
         match action {
             UiAction::PlayOffline => {
                 // Pure local sandbox: bots, no transport.
@@ -582,16 +587,30 @@ fn process_ui_actions(
                 }
             }
             UiAction::PlayAgain => {
-                *pending_network = crate::game::PendingNetworkStart::None;
-                *runtime_mode = crate::game::RuntimeMode::Local; // sandbox rematch
-                if let Some(ref mut gp) = game_phase {
-                    **gp = GamePhase::None;
+                // Online sessions must not silently become Local; route through Title to disconnect.
+                if matches!(*runtime_mode, crate::game::RuntimeMode::Host | crate::game::RuntimeMode::Client) {
+                    *pending_network = crate::game::PendingNetworkStart::None;
+                    // Keep mode until Title cleanup disconnects transport; don't switch to Local here.
+                    if let Some(ref mut gp) = game_phase {
+                        **gp = GamePhase::None;
+                    }
+                    paused.0 = false;
+                    *overlay = OverlayMenu::None;
+                    pending_unpause.0 = None;
+                    virtual_time.unpause();
+                    transition.begin_to_state(AppState::Title);
+                } else {
+                    *pending_network = crate::game::PendingNetworkStart::None;
+                    *runtime_mode = crate::game::RuntimeMode::Local;
+                    if let Some(ref mut gp) = game_phase {
+                        **gp = GamePhase::None;
+                    }
+                    paused.0 = false;
+                    *overlay = OverlayMenu::None;
+                    pending_unpause.0 = None;
+                    virtual_time.unpause();
+                    transition.begin_to_state(AppState::Lobby);
                 }
-                paused.0 = false;
-                *overlay = OverlayMenu::None;
-                pending_unpause.0 = None;
-                virtual_time.unpause();
-                transition.begin_to_state(AppState::Lobby);
             }
             UiAction::CycleColor => {
                 save.preferred_color_index =
@@ -612,7 +631,9 @@ fn process_ui_actions(
                 if !paused.0 {
                     paused.0 = true;
                     *overlay = OverlayMenu::Pause;
-                    virtual_time.pause();
+                    if matches!(*runtime_mode, crate::game::RuntimeMode::Local) {
+                        virtual_time.pause();
+                    }
                     pending_unpause.0 = None;
                 } else {
                     *overlay = OverlayMenu::None;
@@ -696,6 +717,7 @@ fn handle_pause_input(
     mut pending_unpause: ResMut<PendingUnpause>,
     transition: Res<Transition<AppState>>,
     game_phase: Option<Res<GamePhase>>,
+    mode: Res<crate::game::RuntimeMode>,
 ) {
     if *state.get() != AppState::InGame {
         return;
@@ -716,7 +738,9 @@ fn handle_pause_input(
         OverlayMenu::None if !paused.0 => {
             paused.0 = true;
             *overlay = OverlayMenu::Pause;
-            virtual_time.pause();
+            if matches!(*mode, crate::game::RuntimeMode::Local) {
+                virtual_time.pause();
+            }
             pending_unpause.0 = None;
         }
         OverlayMenu::Pause => {
@@ -734,7 +758,19 @@ fn handle_pause_input(
     }
 }
 
-fn sync_virtual_time_with_pause(paused: Res<Paused>, mut virtual_time: ResMut<Time<Virtual>>) {
+fn sync_virtual_time_with_pause(
+    paused: Res<Paused>,
+    mode: Res<crate::game::RuntimeMode>,
+    mut virtual_time: ResMut<Time<Virtual>>,
+) {
+    // Online hosts/clients should not freeze authoritative simulation via virtual pause.
+    // Pause becomes a local overlay only in networked modes.
+    if matches!(*mode, crate::game::RuntimeMode::Host | crate::game::RuntimeMode::Client) {
+        if virtual_time.is_paused() {
+            virtual_time.unpause();
+        }
+        return;
+    }
     if paused.0 {
         if !virtual_time.is_paused() {
             virtual_time.pause();

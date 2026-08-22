@@ -13,6 +13,7 @@ pub struct LobbySlot {
     pub ready: bool,
     pub is_local: bool,
     pub is_host: bool,
+    pub is_bot: bool,
 }
 
 #[derive(Resource, Default)]
@@ -52,6 +53,7 @@ fn setup_lobby(
             ready: false,
             is_local: true,
             is_host: true,
+            is_bot: false,
         });
     };
 
@@ -67,6 +69,7 @@ fn setup_lobby(
                 ready: true,
                 is_local: false,
                 is_host: false,
+                is_bot: true,
             });
         }
     };
@@ -91,14 +94,18 @@ fn handle_start_match(
     mut ev: MessageReader<StartMatchRequest>,
     lobby: Res<LobbyState>,
     mode: Res<RuntimeMode>,
+    cfg: Res<MatchConfig>,
     mut transition: ResMut<game_utils_bevy::transitions::Transition<AppState>>,
 ) {
     for _ in ev.read() {
         if !lobby.is_host || !lobby.local_ready {
             continue;
         }
-        let total = lobby.slots.len();
-        if total < 2 {
+        let minimum_players = (cfg.impostor_count as usize)
+            .saturating_mul(2)
+            .saturating_add(1)
+            .max(3);
+        if lobby.slots.len() < minimum_players {
             continue;
         }
         // Offline bots are pre-ready; online Host requires every remote ready.

@@ -96,6 +96,7 @@ pub struct MatchConfig {
 
     /// Offline bots.
     pub bot_count: u8,
+    #[allow(dead_code)]
     pub bot_task_weight: f32,
     pub bot_report_range: f32,
     pub bot_kill_aggression: f32,

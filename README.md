@@ -10,20 +10,26 @@ cargo run --features dev
 cargo run --features physics   # when you add colliders
 ```
 
-## Current sandbox
+## Current
 
-- Title → Host → Lobby (local + bot agents) → Ready → Start
-- Roles (crew / impostor), movement, tasks (hold E), kill (Q), report (R), emergency (F)
-- Meeting → vote → eject → win checks (tasks / deaths)
+- Title → Host / Join → Lobby (local + bots + network peers) → Ready → Start
+- Roles (crew / impostor) with role reveal, impostor/crewmate vision (radial FOW, Lights dim)
+- Map with collision (SolidAabb), rooms, emergency button, tasks + sabotage stations (O₂/Reactor/Lights)
+- Movement, tasks (hold E), kill (Q w/ cooldown), report (R), emergency (F at button), sabotage (1/2/3)
+- Meeting → voting (bot voting restricted to AiPlayer, skip/tie handling) → eject → win checks (tasks / deaths / sabotage)
+- Renet2 native networking (reliable action/lobby + unreliable input/snapshot, sequence validation, handshake auth, per-client private state)
 - Full ecosystem juice (trauma, VFX, transitions, i18n, save, Repose UI)
+
+## Networking details
+
+- Server-authoritative (Host owns simulation, clients send intent only)
+- Snapshot/input sequencing with wrapping comparison to drop stale UDP
+- Transport runs on `Time<Real>` and ordered PreUpdate/PostUpdate sets
 
 ## Next
 
-1. Lightyear / bevy_replicon networking
-2. Real map (LDtk) + vision
-3. Sabotage timers
-4. Chat
-5. Character cosmetics
+- Chat UI + audio
+- Additional cosmetics / maps
 
 ## License
 

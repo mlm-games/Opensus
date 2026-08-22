@@ -178,10 +178,11 @@ fn emergency_hotkey(
     local: Query<&Player, (With<super::LocalPlayer>, With<Alive>)>,
     mut ev: MessageWriter<MeetingCommand>,
 ) {
-    if matches!(*phase, GamePhase::Playing) && keys.just_pressed(KeyCode::KeyF) {
-        if let Ok(p) = local.single() {
-            ev.write(MeetingCommand::Emergency { actor_id: p.id });
-        }
+    if matches!(*phase, GamePhase::Playing)
+        && keys.just_pressed(KeyCode::KeyF)
+        && let Ok(p) = local.single()
+    {
+        ev.write(MeetingCommand::Emergency { actor_id: p.id });
     }
 }
 
@@ -254,7 +255,6 @@ fn handle_meeting_commands(
                 if local_id.0 == Some(*voter_id) {
                     meeting.local_voted = true;
                 }
-                bot_votes(&mut meeting, &players, *voter_id);
             }
             MeetingCommand::Skip { voter_id } => {
                 if !matches!(*phase, GamePhase::Voting) || meeting.votes.contains_key(voter_id) {
@@ -271,13 +271,46 @@ fn handle_meeting_commands(
                 if local_id.0 == Some(*voter_id) {
                     meeting.local_voted = true;
                 }
-                bot_votes(&mut meeting, &players, *voter_id);
             }
         }
     }
 }
 
-fn bot_votes(
+pub fn cast_missing_bot_votes(
+    meeting: &mut MeetingState,
+    bots: &Query<&Player, (With<crate::game::player::AiPlayer>, With<Alive>)>,
+) {
+    let living_ids: Vec<u64> = meeting
+        .options
+        .iter()
+        .filter(|option| !option.dead)
+        .map(|option| option.player_id)
+        .collect();
+
+    if living_ids.is_empty() {
+        return;
+    }
+
+    let mut rng = rand::rng();
+
+    for bot in bots.iter() {
+        if meeting.votes.contains_key(&bot.id) {
+            continue;
+        }
+
+        if rand::random::<f32>() < 0.25 {
+            meeting.votes.insert(bot.id, None);
+        } else if let Some(&target) = living_ids.choose(&mut rng) {
+            meeting.votes.insert(bot.id, Some(target));
+        }
+    }
+}
+
+/// Fill votes for every living non-local player that hasn't voted yet.
+/// Safe to call every frame during Voting (idempotent via the votes map).
+/// Deprecated: use cast_missing_bot_votes with AiPlayer filter.
+#[allow(dead_code)]
+pub fn bot_votes_public(
     meeting: &mut MeetingState,
     players: &Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
     local_id: u64,
@@ -299,14 +332,4 @@ fn bot_votes(
             meeting.votes.insert(p.id, Some(pick));
         }
     }
-}
-
-/// Fill votes for every living non-local player that hasn't voted yet.
-/// Safe to call every frame during Voting (idempotent via the votes map).
-pub fn bot_votes_public(
-    meeting: &mut MeetingState,
-    players: &Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
-    local_id: u64,
-) {
-    bot_votes(meeting, players, local_id);
 }
