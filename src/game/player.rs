@@ -682,7 +682,7 @@ fn face_movement(
     }
 }
 
-fn camera_follow(
+pub fn camera_follow(
     time: Res<Time>,
     config: Res<MatchConfig>,
     mut camera: Query<&mut CameraBase, With<Camera2d>>,

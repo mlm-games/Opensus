@@ -91,6 +91,8 @@ pub struct NativeNetworkingPlugin;
 #[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
 impl Plugin for NativeNetworkingPlugin {
     fn build(&self, app: &mut App) {
+        use crate::app::AppState;
+        use crate::game::RuntimeMode;
         use crate::game::networking::common::{
             ClientSnapshotSequence, NetworkIdentity, NetworkMappings, ServerSnapshotSequence,
         };
@@ -172,6 +174,20 @@ impl Plugin for NativeNetworkingPlugin {
                 )
                     .in_set(NativeNetSet::FlushTransport),
             )
-            .add_systems(Update, cleanup::cleanup_network_on_title);
+            .add_systems(Update, cleanup::cleanup_network_on_title)
+            .add_systems(
+                Update,
+                client::interpolate_replicas
+                    .run_if(|mode: Res<RuntimeMode>| mode.is_remote_client())
+                    .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(OnExit(AppState::InGame), reset_client_snapshot_sequence);
     }
+}
+
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+fn reset_client_snapshot_sequence(
+    mut seq: ResMut<crate::game::networking::common::ClientSnapshotSequence>,
+) {
+    seq.last_applied = None;
 }

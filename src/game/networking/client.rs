@@ -11,8 +11,8 @@ use crate::game::{
 
 use super::channels::*;
 use super::common::{
-    ClientSnapshotSequence, NetClientRes, NetworkIdentity, ReplicaBody, ReplicaPlayer,
-    sequence_is_newer,
+    ClientSnapshotSequence, INTERPOLATION_DELAY, NetClientRes, NetworkIdentity, ReplicaBody,
+    ReplicaInterpolation, ReplicaPlayer, sample_position, sequence_is_newer,
 };
 use super::protocol::*;
 
@@ -164,11 +164,13 @@ pub fn client_receive_packets(
     mut meeting: Option<ResMut<MeetingState>>,
     mut snapshot_seq: Option<ResMut<ClientSnapshotSequence>>,
     mut chat: ResMut<ChatState>,
+    time: Res<Time<Real>>,
     mut replica_players: Query<(
         Entity,
         &ReplicaPlayer,
         &mut Transform,
         &mut Sprite,
+        &mut ReplicaInterpolation,
         Option<&Alive>,
         Option<&Ghost>,
     )>,
@@ -327,17 +329,17 @@ pub fn client_receive_packets(
             }
         }
 
+        let now = time.elapsed_secs_f64();
         let mut seen_players = Vec::new();
 
         for state in players {
             seen_players.push(state.player_id);
 
-            if let Some((entity, _, mut transform, mut sprite, alive, ghost)) = replica_players
+            if let Some((entity, _, _, mut sprite, mut interp, alive, ghost)) = replica_players
                 .iter_mut()
                 .find(|(_, marker, ..)| marker.player_id == state.player_id)
             {
-                transform.translation.x = state.position[0];
-                transform.translation.y = state.position[1];
+                interp.push_sample(now, Vec2::new(state.position[0], state.position[1]));
 
                 if state.alive {
                     sprite.color.set_alpha(1.0);
@@ -360,6 +362,7 @@ pub fn client_receive_packets(
                 continue;
             }
 
+            let position = Vec2::new(state.position[0], state.position[1]);
             let color = crate::game::PLAYER_COLORS
                 [state.color_index as usize % crate::game::PLAYER_COLORS.len()];
 
@@ -368,6 +371,7 @@ pub fn client_receive_packets(
                 ReplicaPlayer {
                     player_id: state.player_id,
                 },
+                ReplicaInterpolation::with_initial(now, position),
                 Player {
                     id: state.player_id,
                     name: state.name,
@@ -379,7 +383,7 @@ pub fn client_receive_packets(
                     custom_size: Some(Vec2::splat(28.0)),
                     ..default()
                 },
-                Transform::from_xyz(state.position[0], state.position[1], 10.0),
+                Transform::from_xyz(position.x, position.y, 10.0),
             ));
 
             if state.alive {
@@ -395,7 +399,7 @@ pub fn client_receive_packets(
             }
         }
 
-        for (entity, marker, _, _, _, _) in &mut replica_players {
+        for (entity, marker, _, _, _, _, _) in &mut replica_players {
             if !seen_players.contains(&marker.player_id) {
                 commands.entity(entity).despawn();
             }
@@ -435,6 +439,19 @@ pub fn client_receive_packets(
             if !seen_bodies.contains(&marker.body_id) {
                 commands.entity(entity).despawn();
             }
+        }
+    }
+}
+
+pub fn interpolate_replicas(
+    time: Res<Time<Real>>,
+    mut replicas: Query<(&mut Transform, &ReplicaInterpolation), With<ReplicaPlayer>>,
+) {
+    let render_time = time.elapsed_secs_f64() - INTERPOLATION_DELAY;
+    for (mut transform, interp) in &mut replicas {
+        if let Some(position) = sample_position(&interp.samples, render_time) {
+            transform.translation.x = position.x;
+            transform.translation.y = position.y;
         }
     }
 }
