@@ -1,4 +1,5 @@
 #![allow(unused_imports)]
+#![allow(clippy::collapsible_if)]
 use bevy::prelude::*;
 use renet2::ServerEvent;
 
@@ -22,12 +23,36 @@ pub fn host_handle_connects_and_disconnects(
     mut lobby: ResMut<LobbyState>,
     mut mappings: ResMut<NetworkMappings>,
     config: Res<MatchConfig>,
+    state: Res<State<AppState>>,
+    mut commands: Commands,
+    remote_players: Query<(Entity, &Player), With<RemoteNetworkPlayer>>,
 ) {
     let Some(mut server) = server else { return };
+
+    // Enforce handshake timeout for unauthenticated peers.
+    let now = super::common::now_duration();
+    let mut timed_out = Vec::new();
+    for (client_id, deadline) in mappings.handshake_deadline.iter() {
+        if !mappings.authenticated_clients.contains(client_id) && now > *deadline {
+            timed_out.push(*client_id);
+        }
+    }
+    for client_id in timed_out {
+        mappings.handshake_deadline.remove(&client_id);
+        mappings.reliable_buckets.remove(&client_id);
+        mappings.chat_buckets.remove(&client_id);
+        mappings.action_buckets.remove(&client_id);
+        server.0.disconnect(client_id);
+    }
 
     while let Some(event) = server.0.get_event() {
         match event {
             ServerEvent::ClientConnected { client_id } => {
+                // Reject late joins outside Lobby until spectator/rejoin exists.
+                if *state.get() != AppState::Lobby {
+                    server.0.disconnect(client_id);
+                    continue;
+                }
                 if lobby.slots.len() >= config.max_players as usize {
                     server.0.disconnect(client_id);
                     continue;
@@ -36,27 +61,55 @@ pub fn host_handle_connects_and_disconnects(
                 let player_id = client_id;
                 mappings.client_to_player.insert(client_id, player_id);
                 mappings.player_to_client.insert(player_id, client_id);
-
-                if !lobby.slots.iter().any(|slot| slot.id == player_id) {
-                    lobby.slots.push(LobbySlot {
-                        id: player_id,
-                        name: format!("Agent-{player_id}"),
-                        color_index: 0,
-                        ready: false,
-                        is_local: false,
-                        is_host: false,
-                        is_bot: false,
-                    });
-                }
+                mappings
+                    .handshake_deadline
+                    .insert(client_id, now + super::common::HANDSHAKE_TIMEOUT);
+                mappings.reliable_buckets.insert(
+                    client_id,
+                    super::common::TokenBucket::new(
+                        super::common::RELIABLE_BURST,
+                        super::common::RELIABLE_TOKENS_PER_SEC,
+                        now,
+                    ),
+                );
+                mappings.chat_buckets.insert(
+                    client_id,
+                    super::common::TokenBucket::new(
+                        super::common::CHAT_BURST,
+                        super::common::CHAT_TOKENS_PER_SEC,
+                        now,
+                    ),
+                );
+                mappings.action_buckets.insert(
+                    client_id,
+                    super::common::TokenBucket::new(
+                        super::common::ACTION_BURST,
+                        super::common::ACTION_TOKENS_PER_SEC,
+                        now,
+                    ),
+                );
+                // Lobby slot is created only after successful Hello (authenticated).
             }
             ServerEvent::ClientDisconnected { client_id, .. } => {
                 mappings.authenticated_clients.remove(&client_id);
                 mappings.pending_inputs.remove(&client_id);
                 mappings.last_enqueued_input_sequence.remove(&client_id);
                 mappings.last_processed_input_sequence.remove(&client_id);
+                mappings.handshake_deadline.remove(&client_id);
+                mappings.reliable_buckets.remove(&client_id);
+                mappings.chat_buckets.remove(&client_id);
+                mappings.action_buckets.remove(&client_id);
                 if let Some(player_id) = mappings.client_to_player.remove(&client_id) {
                     mappings.player_to_client.remove(&player_id);
                     lobby.slots.retain(|slot| slot.id != player_id);
+                    // Despawn abandoned in-match entity if present.
+                    for (entity, player) in &remote_players {
+                        if player.id == player_id {
+                            commands.entity(entity).despawn();
+                        }
+                    }
+                    // Also clean any non-remote player that might have that id (defensive).
+                    // Lobby already cleaned above.
                 }
             }
         }
@@ -115,8 +168,10 @@ pub fn host_receive_reliable_packets(
     phase: Res<GamePhase>,
     mut chat: ResMut<ChatState>,
     players: Query<(&Player, Option<&Alive>)>,
+    config: Res<MatchConfig>,
 ) {
     let Some(mut server) = server else { return };
+    let now = super::common::now_duration();
 
     for client_id in server.0.clients_id() {
         let mut processed = 0u32;
@@ -138,6 +193,12 @@ pub fn host_receive_reliable_packets(
                 continue;
             }
 
+            if let Some(bucket) = mappings.reliable_buckets.get_mut(&client_id) {
+                if !bucket.try_consume(now, 1.0) {
+                    continue;
+                }
+            }
+
             match packet {
                 ClientPacket::Hello {
                     protocol_version,
@@ -155,8 +216,23 @@ pub fn host_receive_reliable_packets(
                     }
 
                     mappings.authenticated_clients.insert(client_id);
+                    mappings.handshake_deadline.remove(&client_id);
 
-                    if let Some(slot) = lobby.slots.iter_mut().find(|s| s.id == client_id) {
+                    if !lobby.slots.iter().any(|s| s.id == client_id) {
+                        if lobby.slots.len() >= config.max_players as usize {
+                            server.0.disconnect(client_id);
+                            continue;
+                        }
+                        lobby.slots.push(LobbySlot {
+                            id: client_id,
+                            name: name.chars().take(16).collect(),
+                            color_index,
+                            ready: false,
+                            is_local: false,
+                            is_host: false,
+                            is_bot: false,
+                        });
+                    } else if let Some(slot) = lobby.slots.iter_mut().find(|s| s.id == client_id) {
                         slot.name = name.chars().take(16).collect();
                         slot.color_index = color_index;
                     }
@@ -173,21 +249,41 @@ pub fn host_receive_reliable_packets(
                     }
                 }
                 ClientPacket::Kill => {
+                    if let Some(bucket) = mappings.action_buckets.get_mut(&client_id) {
+                        if !bucket.try_consume(now, 1.0) {
+                            continue;
+                        }
+                    }
                     kill_tx.write(KillRequest {
                         actor_id: client_id,
                     });
                 }
                 ClientPacket::Report => {
+                    if let Some(bucket) = mappings.action_buckets.get_mut(&client_id) {
+                        if !bucket.try_consume(now, 1.0) {
+                            continue;
+                        }
+                    }
                     report_tx.write(ReportBody {
                         reporter_id: client_id,
                     });
                 }
                 ClientPacket::Emergency => {
+                    if let Some(bucket) = mappings.action_buckets.get_mut(&client_id) {
+                        if !bucket.try_consume(now, 1.0) {
+                            continue;
+                        }
+                    }
                     meeting_tx.write(MeetingCommand::Emergency {
                         actor_id: client_id,
                     });
                 }
                 ClientPacket::Vote { target } => {
+                    if let Some(bucket) = mappings.action_buckets.get_mut(&client_id) {
+                        if !bucket.try_consume(now, 1.0) {
+                            continue;
+                        }
+                    }
                     match target {
                         Some(t) => meeting_tx.write(MeetingCommand::Vote {
                             voter_id: client_id,
@@ -199,6 +295,11 @@ pub fn host_receive_reliable_packets(
                     };
                 }
                 ClientPacket::Sabotage { kind } => {
+                    if let Some(bucket) = mappings.action_buckets.get_mut(&client_id) {
+                        if !bucket.try_consume(now, 1.0) {
+                            continue;
+                        }
+                    }
                     sab_tx.write(SabotageAction {
                         actor_id: client_id,
                         kind,
@@ -207,6 +308,11 @@ pub fn host_receive_reliable_packets(
                 ClientPacket::Chat { text } => {
                     if !mappings.authenticated_clients.contains(&client_id) {
                         continue;
+                    }
+                    if let Some(bucket) = mappings.chat_buckets.get_mut(&client_id) {
+                        if !bucket.try_consume(now, 1.0) {
+                            continue;
+                        }
                     }
                     if !matches!(*phase, GamePhase::Meeting | GamePhase::Voting) {
                         continue;
@@ -272,6 +378,7 @@ pub fn host_receive_input_packets(
     let Some(mut server) = server else {
         return;
     };
+    let now = super::common::now_duration();
 
     for client_id in server.0.clients_id() {
         let mut processed_packets = 0usize;
@@ -281,6 +388,12 @@ pub fn host_receive_input_packets(
 
             if processed_packets > 64 || bytes.len() > 4096 {
                 break;
+            }
+
+            if let Some(bucket) = mappings.reliable_buckets.get_mut(&client_id) {
+                if !bucket.try_consume(now, 1.0) {
+                    continue;
+                }
             }
 
             let Ok(ClientPacket::Input { commands }) = bincode::deserialize::<ClientPacket>(&bytes)

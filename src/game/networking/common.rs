@@ -44,6 +44,57 @@ pub struct NetworkMappings {
 
     /// Highest sequence actually simulated by the server.
     pub last_processed_input_sequence: HashMap<ClientId, u32>,
+
+    pub handshake_deadline: HashMap<ClientId, Duration>,
+    pub reliable_buckets: HashMap<ClientId, TokenBucket>,
+    pub chat_buckets: HashMap<ClientId, TokenBucket>,
+    pub action_buckets: HashMap<ClientId, TokenBucket>,
+}
+
+pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+
+pub const RELIABLE_TOKENS_PER_SEC: f32 = 40.0;
+pub const RELIABLE_BURST: f32 = 64.0;
+pub const CHAT_TOKENS_PER_SEC: f32 = 0.5;
+pub const CHAT_BURST: f32 = 3.0;
+pub const ACTION_TOKENS_PER_SEC: f32 = 5.0;
+pub const ACTION_BURST: f32 = 10.0;
+
+#[derive(Clone, Debug)]
+pub struct TokenBucket {
+    pub tokens: f32,
+    pub last_refill: Duration,
+    pub capacity: f32,
+    pub refill_per_sec: f32,
+}
+
+impl TokenBucket {
+    pub fn new(capacity: f32, refill_per_sec: f32, now: Duration) -> Self {
+        Self {
+            tokens: capacity,
+            last_refill: now,
+            capacity,
+            refill_per_sec,
+        }
+    }
+
+    pub fn refill(&mut self, now: Duration) {
+        let dt = now.saturating_sub(self.last_refill).as_secs_f32().max(0.0);
+        if dt > 0.0 {
+            self.tokens = (self.tokens + dt * self.refill_per_sec).min(self.capacity);
+            self.last_refill = now;
+        }
+    }
+
+    pub fn try_consume(&mut self, now: Duration, cost: f32) -> bool {
+        self.refill(now);
+        if self.tokens >= cost {
+            self.tokens -= cost;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[derive(Resource, Default)]

@@ -4,10 +4,11 @@ use bevy::prelude::*;
 
 use crate::app::AppState;
 use crate::game::{
-    ActiveSabotage, Alive, Body, CHAT_MAX_LEN, ChatEntry, ChatState, EmergenciesLeft, GamePhase,
-    Ghost, KillCooldownLeft, KillRequest, LobbySlot, LobbyState, LocalPlayer, LocalPlayerId,
-    MatchConfig, MeetingCommand, MeetingState, OutgoingChat, Player, PlayerIntent, ReportBody,
-    Role, RuntimeMode, SabotageAction, SolidAabb, TaskBoard,
+    ActiveSabotage, Alive, Body, CHARACTER_HEIGHT, CHAT_MAX_LEN, ChatEntry, ChatState,
+    EmergenciesLeft, GameAssets, GamePhase, Ghost, KillCooldownLeft, KillRequest, LobbySlot,
+    LobbyState, LocalPlayer, LocalPlayerId, MatchConfig, MeetingCommand, MeetingState,
+    OutgoingChat, PLAYER_COLORS, Player, PlayerIntent, PlayerLayer, ReportBody, Role, RuntimeMode,
+    SabotageAction, SolidAabb, TaskBoard, bake_body_tint,
 };
 
 use super::channels::*;
@@ -293,6 +294,8 @@ pub fn client_receive_packets(
     mut lobby: ResMut<LobbyState>,
     mut local_role: ResMut<crate::game::LocalRole>,
     mut snapshot: SnapshotSync,
+    game_assets: Res<GameAssets>,
+    mut images: ResMut<Assets<Image>>,
     mut replica_players: Query<(
         Entity,
         &ReplicaPlayer,
@@ -301,7 +304,10 @@ pub fn client_receive_packets(
         &mut ReplicaInterpolation,
         Option<&Alive>,
         Option<&Ghost>,
+        Option<&Children>,
     )>,
+    mut layer_sprites: Query<&mut Sprite, With<PlayerLayer>>,
+    mut layer_texts: Query<&mut TextColor>,
     replica_bodies: Query<(Entity, &ReplicaBody)>,
     mut local_state: Query<
         (
@@ -478,7 +484,7 @@ pub fn client_receive_packets(
         for state in players {
             seen_players.push(state.player_id);
 
-            if let Some((entity, _, _, mut sprite, mut interp, alive, ghost)) = replica_players
+            if let Some((entity, _, _, _, mut interp, alive, ghost, children)) = replica_players
                 .iter_mut()
                 .find(|(_, marker, ..)| marker.player_id == state.player_id)
             {
@@ -488,8 +494,19 @@ pub fn client_receive_packets(
                     interp.push_sample(now, Vec2::new(state.position[0], state.position[1]));
                 }
 
+                let layer_alpha = if state.alive { 1.0 } else { 0.35 };
+                if let Some(children) = children {
+                    for child in children.iter() {
+                        if let Ok(mut layer) = layer_sprites.get_mut(child) {
+                            layer.color.set_alpha(layer_alpha);
+                        }
+                        if let Ok(mut text) = layer_texts.get_mut(child) {
+                            text.0 = text.0.with_alpha(layer_alpha);
+                        }
+                    }
+                }
+
                 if state.alive {
-                    sprite.color.set_alpha(1.0);
                     if alive.is_none() {
                         commands.entity(entity).insert(Alive);
                     }
@@ -497,7 +514,6 @@ pub fn client_receive_packets(
                         commands.entity(entity).remove::<Ghost>();
                     }
                 } else {
-                    sprite.color.set_alpha(0.35);
                     if alive.is_some() {
                         commands.entity(entity).remove::<Alive>();
                     }
@@ -510,8 +526,11 @@ pub fn client_receive_packets(
             }
 
             let position = Vec2::new(state.position[0], state.position[1]);
-            let color = crate::game::PLAYER_COLORS
-                [state.color_index as usize % crate::game::PLAYER_COLORS.len()];
+            let color = PLAYER_COLORS[state.color_index as usize % PLAYER_COLORS.len()];
+            let body_handle =
+                bake_body_tint(&mut images, &game_assets.body_for(state.color_index), color)
+                    .unwrap_or_else(|| game_assets.body_for(state.color_index));
+            let clothes_handle = game_assets.clothes_for(state.color_index);
 
             let mut entity = commands.spawn((
                 crate::game::MatchCleanup,
@@ -521,17 +540,43 @@ pub fn client_receive_packets(
                 ReplicaInterpolation::with_initial(now, position),
                 Player {
                     id: state.player_id,
-                    name: state.name,
+                    name: state.name.clone(),
                     color_index: state.color_index,
                     speed: 0.0,
                 },
                 Sprite {
-                    color,
-                    custom_size: Some(Vec2::splat(28.0)),
+                    color: Color::NONE,
+                    custom_size: Some(Vec2::splat(1.0)),
                     ..default()
                 },
                 Transform::from_xyz(position.x, position.y, 10.0),
             ));
+            entity.with_children(|c| {
+                c.spawn((
+                    PlayerLayer,
+                    Sprite {
+                        image: body_handle,
+                        custom_size: Some(Vec2::new(CHARACTER_HEIGHT * 0.75, CHARACTER_HEIGHT)),
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, 0.0, 0.1),
+                ));
+                c.spawn((
+                    PlayerLayer,
+                    Sprite {
+                        image: clothes_handle,
+                        custom_size: Some(Vec2::new(CHARACTER_HEIGHT * 0.75, CHARACTER_HEIGHT)),
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, 0.0, 0.2),
+                ));
+                c.spawn((
+                    Text2d::new(state.name.clone()),
+                    TextFont::from_font_size(14.0),
+                    TextColor(Color::srgb(0.95, 0.95, 0.95)),
+                    Transform::from_xyz(0.0, 22.0, 0.3),
+                ));
+            });
 
             if state.alive {
                 entity.insert(Alive);
@@ -546,7 +591,7 @@ pub fn client_receive_packets(
             }
         }
 
-        for (entity, marker, _, _, _, _, _) in &mut replica_players {
+        for (entity, marker, _, _, _, _, _, _) in &mut replica_players {
             if !seen_players.contains(&marker.player_id) {
                 commands.entity(entity).despawn();
             }
