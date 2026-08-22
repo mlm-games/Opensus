@@ -44,8 +44,7 @@ pub fn resolve_local_solids(
     let boxes = solid_boxes(&solids);
 
     for mut transform in &mut bodies {
-        let position =
-            depenetrate_circle(transform.translation.truncate(), PLAYER_RADIUS, &boxes);
+        let position = depenetrate_circle(transform.translation.truncate(), PLAYER_RADIUS, &boxes);
 
         transform.translation.x = position.x;
         transform.translation.y = position.y;
@@ -69,8 +68,7 @@ pub fn resolve_solids(
     let boxes = solid_boxes(&solids);
 
     for mut transform in &mut bodies {
-        let position =
-            depenetrate_circle(transform.translation.truncate(), PLAYER_RADIUS, &boxes);
+        let position = depenetrate_circle(transform.translation.truncate(), PLAYER_RADIUS, &boxes);
 
         transform.translation.x = position.x;
         transform.translation.y = position.y;
@@ -82,12 +80,7 @@ pub(crate) fn solid_boxes(
 ) -> Vec<(Vec2, Vec2)> {
     solids
         .iter()
-        .map(|(transform, solid)| {
-            (
-                transform.translation.truncate(),
-                solid.half_extents,
-            )
-        })
+        .map(|(transform, solid)| (transform.translation.truncate(), solid.half_extents))
         .collect()
 }
 
@@ -158,12 +151,7 @@ pub(crate) fn step_player_position(
     position
 }
 
-fn move_axis(
-    mut position: Vec2,
-    amount: f32,
-    axis: Axis,
-    boxes: &[(Vec2, Vec2)],
-) -> Vec2 {
+fn move_axis(mut position: Vec2, amount: f32, axis: Axis, boxes: &[(Vec2, Vec2)]) -> Vec2 {
     if amount.abs() <= f32::EPSILON {
         return position;
     }
@@ -218,11 +206,7 @@ fn move_axis(
 /// The swept movement uses expanded AABBs for stable sliding. This path is
 /// specifically for spawn/teleport/network corrections where a player may
 /// already be embedded in geometry.
-fn depenetrate_circle(
-    mut position: Vec2,
-    radius: f32,
-    boxes: &[(Vec2, Vec2)],
-) -> Vec2 {
+fn depenetrate_circle(mut position: Vec2, radius: f32, boxes: &[(Vec2, Vec2)]) -> Vec2 {
     for _ in 0..MAX_DEPENETRATION_PASSES {
         let mut changed = false;
 
@@ -289,14 +273,7 @@ mod tests {
 
     #[test]
     fn movement_is_clamped_to_unit_input() {
-        let result = step_player_position(
-            Vec2::ZERO,
-            Vec2::new(10.0, 0.0),
-            100.0,
-            0.1,
-            false,
-            &[],
-        );
+        let result = step_player_position(Vec2::ZERO, Vec2::new(10.0, 0.0), 100.0, 0.1, false, &[]);
 
         assert!((result.x - 10.0).abs() < 0.001);
     }
@@ -319,14 +296,8 @@ mod tests {
     fn large_frame_cannot_tunnel_through_wall() {
         let walls = [(Vec2::ZERO, Vec2::new(5.0, 100.0))];
 
-        let result = step_player_position(
-            Vec2::new(-100.0, 0.0),
-            Vec2::X,
-            1_000.0,
-            0.25,
-            true,
-            &walls,
-        );
+        let result =
+            step_player_position(Vec2::new(-100.0, 0.0), Vec2::X, 1_000.0, 0.25, true, &walls);
 
         assert!(result.x <= -PLAYER_RADIUS - 5.0);
     }
@@ -366,14 +337,8 @@ mod tests {
     fn ghost_ignores_walls_but_respects_map_bounds() {
         let walls = [(Vec2::ZERO, Vec2::new(100.0, 100.0))];
 
-        let result = step_player_position(
-            Vec2::new(-150.0, 0.0),
-            Vec2::X,
-            1_000.0,
-            1.0,
-            false,
-            &walls,
-        );
+        let result =
+            step_player_position(Vec2::new(-150.0, 0.0), Vec2::X, 1_000.0, 1.0, false, &walls);
 
         assert_eq!(result.x, MAP_BOUNDS.x);
     }

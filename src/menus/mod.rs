@@ -9,10 +9,9 @@ use repose_core::prelude::{
     remember,
 };
 use repose_material::material3::{
-    Button, ButtonConfig, Card, CardConfig, DropdownMenu, DropdownMenuConfig,
-    DropdownMenuEntry, DropdownMenuItem, FilledTonalButton,
-    LinearProgressIndicator, LinearProgressIndicatorConfig, ListItem,
-    ListItemConfig, MenuState, OutlinedButton, Slider, SliderConfig, TextButton,
+    Button, ButtonConfig, Card, CardConfig, DropdownMenu, DropdownMenuConfig, DropdownMenuEntry,
+    DropdownMenuItem, FilledTonalButton, LinearProgressIndicator, LinearProgressIndicatorConfig,
+    ListItem, ListItemConfig, MenuState, OutlinedButton, Slider, SliderConfig, TextButton,
 };
 use repose_ui::anim_ext::{
     AnimatedVisibility, AnimatedVisibilityConfig, EnterTransition, ExitTransition,
@@ -245,8 +244,7 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let quit = actions.clone();
 
     let background = if let Some(handle) = st.ui_lab_bg {
-        Image(Modifier::new().fill_max_size(), handle)
-            .image_fit(repose_core::ImageFit::Cover)
+        Image(Modifier::new().fill_max_size(), handle).image_fit(repose_core::ImageFit::Cover)
     } else {
         Column(Modifier::new().fill_max_size().background(p_bg()))
     };
@@ -262,13 +260,9 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         RText(t(tr, "app-title", "Opensus"))
             .size(72.0)
             .color(p_cyan()),
-        RText(t(
-            tr,
-            "app-tagline",
-            "One among us is not like the rest.",
-        ))
-        .size(22.0)
-        .color(p_text()),
+        RText(t(tr, "app-tagline", "One among us is not like the rest."))
+            .size(22.0)
+            .color(p_text()),
         RText("Find the impostor. Finish your tasks. Survive the ship.")
             .size(16.0)
             .color(p_text_dim()),
@@ -343,12 +337,8 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 .align_items(AlignItems::CENTER),
         )
         .child(
-            Row(
-                Modifier::new()
-                    .gap(40.0)
-                    .align_items(AlignItems::CENTER),
-            )
-            .child((branding, panel_card(360.0, menu_content))),
+            Row(Modifier::new().gap(40.0).align_items(AlignItems::CENTER))
+                .child((branding, panel_card(360.0, menu_content))),
         ),
     ))
 }
@@ -365,11 +355,7 @@ fn lobby_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let player_count = st.lobby_slots.len();
     let ready_count = st.lobby_slots.iter().filter(|slot| slot.ready).count();
 
-    let mut players = Column(
-        Modifier::new()
-            .fill_max_width()
-            .gap(2.0),
-    );
+    let mut players = Column(Modifier::new().fill_max_width().gap(2.0));
 
     for slot in &st.lobby_slots {
         let status = if slot.ready {
@@ -390,11 +376,7 @@ fn lobby_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 
         let trailing = RText(if slot.ready { "READY" } else { "WAITING" })
             .size(12.0)
-            .color(if slot.ready {
-                p_green()
-            } else {
-                p_text_dim()
-            });
+            .color(if slot.ready { p_green() } else { p_text_dim() });
 
         players = players.child(ListItem(
             slot.name.clone(),
@@ -421,12 +403,10 @@ fn lobby_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 .align_items(AlignItems::STRETCH),
         )
         .child((
-            Row(
-                Modifier::new()
-                    .fill_max_width()
-                    .justify_content(JustifyContent::SPACE_BETWEEN)
-                    .align_items(AlignItems::CENTER),
-            )
+            Row(Modifier::new()
+                .fill_max_width()
+                .justify_content(JustifyContent::SPACE_BETWEEN)
+                .align_items(AlignItems::CENTER))
             .child((
                 Column(Modifier::new()).child((
                     RText(t(tr, "lobby-waiting", "Lobby"))
@@ -463,9 +443,7 @@ fn lobby_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .align_items(AlignItems::STRETCH),
     )
     .child((
-        RText(st.player_name.clone())
-            .size(24.0)
-            .color(p_text()),
+        RText(st.player_name.clone()).size(24.0).color(p_text()),
         RText(if st.is_host {
             "You are hosting this lobby."
         } else {
@@ -521,11 +499,9 @@ fn lobby_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .align_items(AlignItems::CENTER),
     )
     .child(
-        Row(
-            Modifier::new()
-                .gap(24.0)
-                .align_items(AlignItems::FLEX_START),
-        )
+        Row(Modifier::new()
+            .gap(24.0)
+            .align_items(AlignItems::FLEX_START))
         .child((roster, panel_card(308.0, controls))),
     )
 }
@@ -556,12 +532,10 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 .align_items(AlignItems::STRETCH),
         )
         .child((
-            Row(
-                Modifier::new()
-                    .fill_max_width()
-                    .justify_content(JustifyContent::SPACE_BETWEEN)
-                    .align_items(AlignItems::CENTER),
-            )
+            Row(Modifier::new()
+                .fill_max_width()
+                .justify_content(JustifyContent::SPACE_BETWEEN)
+                .align_items(AlignItems::CENTER))
             .child((
                 RText(role_label)
                     .size(20.0)
@@ -605,12 +579,10 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 
     let actions_card = panel_card(
         144.0,
-        Row(
-            Modifier::new()
-                .padding(10.0)
-                .gap(8.0)
-                .align_items(AlignItems::CENTER),
-        )
+        Row(Modifier::new()
+            .padding(10.0)
+            .gap(8.0)
+            .align_items(AlignItems::CENTER))
         .child((
             compact_action_button("!", ActionStyle::Danger, move || {
                 push(&emergency, UiAction::CallEmergency)
@@ -631,23 +603,17 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                     .padding(14.0)
                     .align_items(AlignItems::CENTER),
             )
-            .child(
-                RText(st.interact_prompt.clone())
-                    .size(18.0)
-                    .color(p_cyan()),
-            ),
+            .child(RText(st.interact_prompt.clone()).size(18.0).color(p_cyan())),
         )
     };
 
     ZStack(Modifier::new().fill_max_size()).child((
-        Row(
-            Modifier::new()
-                .fill_max_width()
-                .padding(16.0)
-                .justify_content(JustifyContent::SPACE_BETWEEN)
-                .align_items(AlignItems::FLEX_START)
-                .hit_passthrough(),
-        )
+        Row(Modifier::new()
+            .fill_max_width()
+            .padding(16.0)
+            .justify_content(JustifyContent::SPACE_BETWEEN)
+            .align_items(AlignItems::FLEX_START)
+            .hit_passthrough())
         .child((status, actions_card)),
         Column(
             Modifier::new()
@@ -1155,12 +1121,9 @@ fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .color(p_text_dim()),
         RText("Project: mlm-games").size(16.0).color(p_cyan()),
         spacer(10.0),
-        action_button(
-            t(tr, "back", "Back"),
-            ActionStyle::Text,
-            260.0,
-            move || push(&a, UiAction::CloseOverlay),
-        ),
+        action_button(t(tr, "back", "Back"), ActionStyle::Text, 260.0, move || {
+            push(&a, UiAction::CloseOverlay)
+        }),
     ));
 
     Column(
@@ -1200,51 +1163,27 @@ fn action_button(
     let modifier = Modifier::new().width(width).min_height(48.0);
 
     match style {
-        ActionStyle::Primary => Button(
-            modifier,
-            on_click,
-            config,
-            move || RText(label).size(16.0),
-        ),
-        ActionStyle::Tonal => FilledTonalButton(
-            modifier,
-            on_click,
-            config,
-            move || RText(label).size(16.0),
-        ),
-        ActionStyle::Outlined => OutlinedButton(
-            modifier,
-            on_click,
-            config,
-            move || RText(label).size(16.0),
-        ),
-        ActionStyle::Text => TextButton(
-            modifier,
-            on_click,
-            config,
-            move || RText(label).size(16.0),
-        ),
+        ActionStyle::Primary => Button(modifier, on_click, config, move || RText(label).size(16.0)),
+        ActionStyle::Tonal => {
+            FilledTonalButton(modifier, on_click, config, move || RText(label).size(16.0))
+        }
+        ActionStyle::Outlined => {
+            OutlinedButton(modifier, on_click, config, move || RText(label).size(16.0))
+        }
+        ActionStyle::Text => {
+            TextButton(modifier, on_click, config, move || RText(label).size(16.0))
+        }
         ActionStyle::Danger => {
             config.container_color = Some(p_red());
             config.content_color = Some(RColor::WHITE);
 
-            Button(
-                modifier,
-                on_click,
-                config,
-                move || RText(label).size(16.0),
-            )
+            Button(modifier, on_click, config, move || RText(label).size(16.0))
         }
         ActionStyle::Success => {
             config.container_color = Some(p_green());
             config.content_color = Some(col(5, 35, 15));
 
-            Button(
-                modifier,
-                on_click,
-                config,
-                move || RText(label).size(16.0),
-            )
+            Button(modifier, on_click, config, move || RText(label).size(16.0))
         }
     }
 }

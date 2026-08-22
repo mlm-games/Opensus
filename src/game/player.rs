@@ -76,11 +76,7 @@ impl Plugin for PlayerPlugin {
             )
             .add_systems(
                 Update,
-                (
-                    local_intent_and_move,
-                    update_local_prompt,
-                    camera_follow,
-                )
+                (local_intent_and_move, update_local_prompt, camera_follow)
                     .chain()
                     .in_set(super::GameSimSet::Input)
                     .run_if(in_state(AppState::InGame))
