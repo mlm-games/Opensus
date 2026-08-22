@@ -614,45 +614,66 @@ fn meeting_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         ));
     }
 
+    // Chat log (last 8) + input line
+    let mut chat_col = Column(
+        Modifier::new()
+            .width(380.0)
+            .padding(8.0)
+            .background(col(14, 14, 20))
+            .clip_rounded(8.0)
+            .align_items(AlignItems::FLEX_START)
+            .gap(2.0),
+    );
+    let start = st.chat_entries.len().saturating_sub(8);
+    for (name, text, ghost) in &st.chat_entries[start..] {
+        let (name_col, tag) = if *ghost {
+            (col(150, 150, 200), " (ghost)")
+        } else {
+            (col(220, 200, 120), "")
+        };
+        chat_col = chat_col.child(
+            Row(Modifier::new().gap(6.0))
+                .child(RText(format!("{name}{tag}:")).size(14.0).color(name_col))
+                .child(RText(text.clone()).size(14.0).color(RColor::WHITE)),
+        );
+    }
+    chat_col = chat_col.child(
+        RText(format!("> {}_", st.chat_buffer))
+            .size(14.0)
+            .color(col(160, 220, 160)),
+    );
+
+    let panel = Column(
+        Modifier::new()
+            .width(430.0)
+            .padding(26.0)
+            .gap(6.0)
+            .background(p_panel())
+            .border(1.0, p_panel_border(), 14.0)
+            .clip_rounded(14.0)
+            .align_items(AlignItems::CENTER),
+    )
+    .child(RText(t(tr, "emergency-meeting", "Meeting")).size(32.0).color(p_cyan()))
+    .child(RText(phase_label).size(18.0).color(p_text_dim()))
+    .child(RText(format!("{:.0}s", st.phase_timer)).size(16.0).color(p_text_dim()))
+    .child(spacer(8.0))
+    .child(RText(st.meeting_prompt.clone()).size(18.0).color(p_text()))
+    .child(spacer(8.0))
+    .child(RText(st.result_text.clone()).size(18.0).color(col(220, 200, 120)))
+    .child(chat_col)
+    .child(spacer(8.0))
+    .child(votes);
+
     Column(
         Modifier::new()
             .fill_max_size()
             .justify_content(JustifyContent::CENTER)
             .align_items(AlignItems::CENTER)
             .background(RColor::from_rgba(0, 0, 0, 200))
-            // Above world/exit layers; during the exit animation the
-            // closing meeting must never sit on top of this modal.
             .z_index(50.0)
             .input_blocker(),
     )
-    .child(
-        Column(
-            Modifier::new()
-                .width(430.0)
-                .padding(26.0)
-                .gap(6.0)
-                .background(p_panel())
-                .border(1.0, p_panel_border(), 14.0)
-                .clip_rounded(14.0)
-                .align_items(AlignItems::CENTER),
-        )
-        .child((
-            RText(t(tr, "emergency-meeting", "Meeting"))
-                .size(32.0)
-                .color(p_cyan()),
-            RText(phase_label).size(18.0).color(p_text_dim()),
-            RText(format!("{:.0}s", st.phase_timer))
-                .size(16.0)
-                .color(p_text_dim()),
-            spacer(8.0),
-            RText(st.meeting_prompt.clone()).size(18.0).color(p_text()),
-            spacer(8.0),
-            RText(st.result_text.clone())
-                .size(18.0)
-                .color(col(220, 200, 120)),
-            votes,
-        )),
-    )
+    .child(panel)
 }
 
 fn gameover_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {

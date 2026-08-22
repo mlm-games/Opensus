@@ -1,5 +1,6 @@
 mod assets;
 mod authority;
+mod chat;
 mod collision;
 mod interaction;
 mod kill_sabotage;
@@ -17,6 +18,7 @@ mod vision;
 
 pub use assets::*;
 pub use authority::*;
+pub use chat::*;
 pub use collision::*;
 pub use interaction::*;
 pub use kill_sabotage::*;
@@ -90,6 +92,7 @@ impl Plugin for GamePlugin {
                 SabotagePlugin,
                 VisionPlugin,
                 NetworkingPlugin,
+                ChatPlugin,
                 GameAssetsPlugin,
             ))
             .add_systems(OnEnter(AppState::InGame), setup_match)

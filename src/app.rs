@@ -152,6 +152,8 @@ pub struct SharedUi {
     pub lights_out: bool,
     pub local_alive: bool,
     pub local_player_id: Option<u64>,
+    pub chat_entries: Vec<(String, String, bool)>, // name, text, ghost
+    pub chat_buffer: String,
     pub ui_lab_bg: Option<repose_core::ImageHandle>,
     pub ui_background: Option<repose_core::ImageHandle>,
 }
@@ -196,6 +198,8 @@ impl Default for SharedUi {
             lights_out: false,
             local_alive: true,
             local_player_id: None,
+            chat_entries: Vec::new(),
+            chat_buffer: String::new(),
             ui_lab_bg: None,
             ui_background: None,
         }
@@ -393,6 +397,8 @@ fn sync_shared_game(
     prompt: Option<Res<crate::game::LocalPrompt>>,
     local_alive_q: Query<(), (With<crate::game::LocalPlayer>, With<crate::game::Alive>)>,
     local_player_id: Option<Res<crate::game::LocalPlayerId>>,
+    chat: Option<Res<crate::game::ChatState>>,
+    chat_buffer: Option<Res<crate::game::ChatInputBuffer>>,
 ) {
     let Ok(mut ui) = bridge.shared.lock() else {
         return;
@@ -463,6 +469,15 @@ fn sync_shared_game(
     ui.interact_prompt = prompt.map(|p| p.0.clone()).unwrap_or_default();
     ui.local_alive = !local_alive_q.is_empty();
     ui.local_player_id = local_player_id.and_then(|id| id.0);
+    ui.chat_entries = chat
+        .map(|c| {
+            c.entries
+                .iter()
+                .map(|e| (e.name.clone(), e.text.clone(), e.ghost))
+                .collect()
+        })
+        .unwrap_or_default();
+    ui.chat_buffer = chat_buffer.map(|b| b.0.clone()).unwrap_or_default();
 }
 
 fn tick_pending_unpause(

@@ -11,9 +11,10 @@ use renet2_netcode::{
 
 use crate::app::AppState;
 use crate::game::{
-    ActiveSabotage, Alive, Body, EmergenciesLeft, GamePhase, Ghost, KillCooldownLeft, KillRequest,
-    LobbySlot, LobbyState, LocalPlayer, LocalPlayerId, MatchConfig, MeetingCommand, MeetingState,
-    Player, PlayerIntent, ReportBody, Role, RuntimeMode, SabotageAction, TaskBoard,
+    ActiveSabotage, Alive, Body, ChatEntry, ChatState, EmergenciesLeft, GamePhase, Ghost,
+    KillCooldownLeft, KillRequest, LobbySlot, LobbyState, LocalPlayer, LocalPlayerId, MatchConfig,
+    MeetingCommand, MeetingState, OutgoingChat, Player, PlayerIntent, ReportBody, Role,
+    RuntimeMode, SabotageAction, TaskBoard, CHAT_MAX_LEN,
 };
 
 use super::PendingNetworkStart;
@@ -146,9 +147,11 @@ impl Plugin for NativeNetworkingPlugin {
                     host_broadcast_lobby_snapshot,
                     host_send_match_started,
                     host_send_world_snapshots,
+                    host_relay_local_chat,
                     client_receive_packets,
                     client_send_input_packets,
                     client_send_actions,
+                    client_send_chat,
                 )
                     .chain()
                     .in_set(NativeNetSet::SendPackets),
@@ -403,6 +406,46 @@ fn client_send_ready(
     }
 }
 
+fn client_send_chat(
+    mut outgoing: MessageReader<OutgoingChat>,
+    client: Option<ResMut<NetClientRes>>,
+) {
+    let Some(mut client) = client else { return };
+    if !client.0.is_connected() {
+        return;
+    }
+    for OutgoingChat(text) in outgoing.read() {
+        let packet = ClientPacket::Chat {
+            text: text.chars().take(CHAT_MAX_LEN).collect(),
+        };
+        if let Ok(bytes) = bincode::serialize(&packet) {
+            client.0.send_message(C2S_RELIABLE, bytes);
+        }
+    }
+}
+
+fn host_relay_local_chat(
+    mut outgoing: MessageReader<OutgoingChat>,
+    server: Option<ResMut<NetServerRes>>,
+    local: Query<(&Player, Option<&Alive>), With<LocalPlayer>>,
+) {
+    let Some(mut server) = server else { return };
+    for OutgoingChat(text) in outgoing.read() {
+        let Ok((player, alive)) = local.single() else {
+            continue;
+        };
+        let packet = ServerPacket::Chat {
+            player_id: player.id,
+            name: player.name.clone(),
+            text: text.clone(),
+            ghost: alive.is_none(),
+        };
+        if let Ok(bytes) = bincode::serialize(&packet) {
+            server.0.broadcast_message(S2C_RELIABLE, bytes);
+        }
+    }
+}
+
 fn host_receive_reliable_packets(
     server: Option<ResMut<NetServerRes>>,
     mut lobby: ResMut<LobbyState>,
@@ -411,6 +454,9 @@ fn host_receive_reliable_packets(
     mut report_tx: MessageWriter<ReportBody>,
     mut meeting_tx: MessageWriter<MeetingCommand>,
     mut sab_tx: MessageWriter<SabotageAction>,
+    phase: Res<GamePhase>,
+    mut chat: ResMut<ChatState>,
+    players: Query<(&Player, Option<&Alive>)>,
 ) {
     let Some(mut server) = server else { return };
 
@@ -501,7 +547,48 @@ fn host_receive_reliable_packets(
                         kind,
                     });
                 }
-                ClientPacket::Chat { .. } | ClientPacket::Input { .. } => {}
+                ClientPacket::Chat { text } => {
+                    if !mappings.authenticated_clients.contains(&client_id) {
+                        continue;
+                    }
+                    if !matches!(*phase, GamePhase::Meeting | GamePhase::Voting) {
+                        continue;
+                    }
+                    let text: String = text.trim().chars().take(CHAT_MAX_LEN).collect();
+                    if text.is_empty() {
+                        continue;
+                    }
+                    let Some(player_id) =
+                        mappings.client_to_player.get(&client_id).copied()
+                    else {
+                        continue;
+                    };
+                    // Identity from the connection mapping — never from the packet.
+                    let Some((player, alive)) =
+                        players.iter().find(|(p, _)| p.id == player_id)
+                    else {
+                        continue;
+                    };
+
+                    let entry = ChatEntry {
+                        player_id,
+                        name: player.name.clone(),
+                        text: text.clone(),
+                        ghost: alive.is_none(),
+                    };
+                    chat.push(entry);
+
+                    let packet = ServerPacket::Chat {
+                        player_id,
+                        name: player.name.clone(),
+                        text,
+                        ghost: alive.is_none(),
+                    };
+                    if let Ok(bytes) = bincode::serialize(&packet) {
+                        server.0.broadcast_message(S2C_RELIABLE, bytes);
+                    }
+                }
+                ClientPacket::Input { .. } => {}
             }
         }
     }
@@ -762,6 +849,7 @@ fn client_receive_packets(
     mut tasks: Option<ResMut<TaskBoard>>,
     mut meeting: Option<ResMut<MeetingState>>,
     mut snapshot_seq: Option<ResMut<ClientSnapshotSequence>>,
+    mut chat: ResMut<ChatState>,
     mut replica_players: Query<(
         Entity,
         &ReplicaPlayer,
@@ -815,7 +903,20 @@ fn client_receive_packets(
             ServerPacket::Rejected { reason } => {
                 warn!("server rejected client: {reason}");
             }
-            ServerPacket::WorldSnapshot { .. } | ServerPacket::Chat { .. } => {}
+            ServerPacket::Chat {
+                player_id,
+                name,
+                text,
+                ghost,
+            } => {
+                chat.push(ChatEntry {
+                    player_id,
+                    name,
+                    text,
+                    ghost,
+                });
+            }
+            ServerPacket::WorldSnapshot { .. } => {}
         }
     }
 

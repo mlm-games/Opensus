@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::game::{GamePhase, Role, SabotageKind};
 
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 pub const PROTOCOL_ID: u64 = 0x4F50_454E_5355_5301;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -107,6 +107,7 @@ pub enum ServerPacket {
         player_id: u64,
         name: String,
         text: String,
+        ghost: bool,
     },
     Rejected {
         reason: String,
