@@ -145,6 +145,15 @@ fn spawn_map(mut commands: Commands, assets: Res<GameAssets>) {
             2.5,
         );
     }
+    for x in [550.0, -550.0] {
+        spawn_wall(
+            &mut commands,
+            &assets,
+            Vec2::new(x, 0.0),
+            Vec2::new(12.0, 640.0),
+            2.5,
+        );
+    }
 }
 
 fn spawn_wall(commands: &mut Commands, assets: &GameAssets, pos: Vec2, size: Vec2, z: f32) {

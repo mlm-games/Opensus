@@ -78,7 +78,6 @@ impl Plugin for PlayerPlugin {
                 Update,
                 (
                     local_intent_and_move,
-                    super::collision::resolve_local_solids,
                     update_local_prompt,
                     camera_follow,
                 )
@@ -95,7 +94,6 @@ impl Plugin for PlayerPlugin {
                     ai_brain,
                     ai_ghost_brain,
                     apply_intent_movement,
-                    super::collision::resolve_solids,
                     face_movement,
                 )
                     .chain()
@@ -291,6 +289,7 @@ fn local_intent_and_move(
     phase: Res<GamePhase>,
     mode: Res<RuntimeMode>,
     cfg: Res<MatchConfig>,
+    solids: Query<(&Transform, &super::SolidAabb), Without<Player>>,
     mut living: Query<
         (&Player, &mut PlayerIntent, &mut Transform),
         (With<LocalPlayer>, With<Alive>),
@@ -305,53 +304,74 @@ fn local_intent_and_move(
             intent.movement = Vec2::ZERO;
             intent.interact = false;
         }
+
         if let Ok((_, mut intent, _)) = ghosts.single_mut() {
             intent.movement = Vec2::ZERO;
             intent.interact = false;
         }
+
         return;
     }
 
-    let dir = input_direction(&keys);
+    let direction = input_direction(&keys);
+    let interact = keys.pressed(KeyCode::KeyE);
+
+    // A network client is moved by fixed-step prediction/reconciliation.
+    if matches!(*mode, RuntimeMode::Client) {
+        if let Ok((_, mut intent, _)) = living.single_mut() {
+            intent.movement = direction;
+            intent.interact = interact;
+        } else if let Ok((_, mut intent, _)) = ghosts.single_mut() {
+            intent.movement = direction;
+            intent.interact = interact;
+        }
+
+        return;
+    }
+
+    let boxes = super::collision::solid_boxes(&solids);
 
     if let Ok((player, mut intent, mut transform)) = living.single_mut() {
-        intent.movement = dir;
-        intent.interact = keys.pressed(KeyCode::KeyE);
-        if !matches!(*mode, RuntimeMode::Client) {
-            transform.translation +=
-                (intent.movement * player.speed * time.delta_secs()).extend(0.0);
-            clamp_pos(&mut transform);
-        }
+        intent.movement = direction;
+        intent.interact = interact;
+
+        let position = super::collision::step_player_position(
+            transform.translation.truncate(),
+            direction,
+            player.speed,
+            time.delta_secs(),
+            true,
+            &boxes,
+        );
+
+        transform.translation.x = position.x;
+        transform.translation.y = position.y;
         return;
     }
 
     if let Ok((player, mut intent, mut transform)) = ghosts.single_mut() {
-        intent.movement = dir;
-        intent.interact = keys.pressed(KeyCode::KeyE);
-        if matches!(*mode, RuntimeMode::Client) {
-            return;
-        }
-        let speed = player.speed * cfg.ghost_speed_mul;
-        transform.translation += (intent.movement * speed * time.delta_secs()).extend(0.0);
-        clamp_pos(&mut transform);
-    }
-}
+        intent.movement = direction;
+        intent.interact = interact;
 
-fn clamp_pos(tf: &mut Transform) {
-    tf.translation.x = tf
-        .translation
-        .x
-        .clamp(-super::MAP_BOUNDS.x, super::MAP_BOUNDS.x);
-    tf.translation.y = tf
-        .translation
-        .y
-        .clamp(-super::MAP_BOUNDS.y, super::MAP_BOUNDS.y);
+        let position = super::collision::step_player_position(
+            transform.translation.truncate(),
+            direction,
+            player.speed * cfg.ghost_speed_mul,
+            time.delta_secs(),
+            false,
+            &boxes,
+        );
+
+        transform.translation.x = position.x;
+        transform.translation.y = position.y;
+    }
 }
 
 fn apply_intent_movement(
     time: Res<Time>,
     mode: Res<RuntimeMode>,
     cfg: Res<MatchConfig>,
+    solids: Query<(&Transform, &super::SolidAabb), Without<Player>>,
     mut living: Query<
         (&Player, &PlayerIntent, &mut Transform),
         (
@@ -373,14 +393,35 @@ fn apply_intent_movement(
     if matches!(*mode, RuntimeMode::Client) {
         return;
     }
-    for (player, intent, mut tf) in &mut living {
-        tf.translation += (intent.movement * player.speed * time.delta_secs()).extend(0.0);
-        clamp_pos(&mut tf);
+
+    let boxes = super::collision::solid_boxes(&solids);
+
+    for (player, intent, mut transform) in &mut living {
+        let position = super::collision::step_player_position(
+            transform.translation.truncate(),
+            intent.movement,
+            player.speed,
+            time.delta_secs(),
+            true,
+            &boxes,
+        );
+
+        transform.translation.x = position.x;
+        transform.translation.y = position.y;
     }
-    for (player, intent, mut tf) in &mut ghosts {
-        let speed = player.speed * cfg.ghost_speed_mul;
-        tf.translation += (intent.movement * speed * time.delta_secs()).extend(0.0);
-        clamp_pos(&mut tf);
+
+    for (player, intent, mut transform) in &mut ghosts {
+        let position = super::collision::step_player_position(
+            transform.translation.truncate(),
+            intent.movement,
+            player.speed * cfg.ghost_speed_mul,
+            time.delta_secs(),
+            false,
+            &boxes,
+        );
+
+        transform.translation.x = position.x;
+        transform.translation.y = position.y;
     }
 }
 
