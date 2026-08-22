@@ -5,6 +5,8 @@ use bevy::prelude::*;
 use renet2::{ClientId, RenetClient, RenetServer};
 use renet2_netcode::{NetcodeClientTransport, NetcodeServerTransport};
 
+use super::protocol::NetInputCommand;
+
 #[derive(Resource)]
 pub struct NetServerRes(pub RenetServer);
 
@@ -28,10 +30,20 @@ pub struct NetworkIdentity {
 pub struct NetworkMappings {
     pub client_to_player: HashMap<ClientId, u64>,
     pub player_to_client: HashMap<u64, ClientId>,
+
     pub body_entities: HashMap<u64, Entity>,
     pub next_body_id: u64,
-    pub last_input_sequence: HashMap<ClientId, u32>,
+
     pub authenticated_clients: HashSet<ClientId>,
+
+    /// Commands accepted from each client but not yet simulated.
+    pub pending_inputs: HashMap<ClientId, VecDeque<NetInputCommand>>,
+
+    /// Highest sequence accepted into each client's pending queue.
+    pub last_enqueued_input_sequence: HashMap<ClientId, u32>,
+
+    /// Highest sequence actually simulated by the server.
+    pub last_processed_input_sequence: HashMap<ClientId, u32>,
 }
 
 #[derive(Resource, Default)]
@@ -63,6 +75,68 @@ pub struct ReplicaBody {
 }
 
 pub const SNAPSHOT_HZ: f32 = 20.0;
+
+/// Explicitly matches Bevy's fixed-step default while documenting that the
+/// network prediction protocol depends on this frequency.
+pub const PREDICTION_HZ: f64 = 64.0;
+
+/// Up to one second of 64 Hz commands fits comfortably below the existing
+/// 4 KiB input-packet limit.
+pub const INPUT_BATCH_SIZE: usize = 64;
+
+/// Client-side memory bound if snapshots/acknowledgements stop arriving.
+pub const MAX_CLIENT_PENDING_INPUTS: usize = 256;
+
+/// Server-side bound against an authenticated client flooding future inputs.
+pub const MAX_SERVER_PENDING_INPUTS: usize = 128;
+
+#[derive(Resource, Default)]
+pub struct ClientPredictionState {
+    pub pending: VecDeque<NetInputCommand>,
+}
+
+impl ClientPredictionState {
+    pub fn push(&mut self, command: NetInputCommand) {
+        self.pending.push_back(command);
+
+        while self.pending.len() > MAX_CLIENT_PENDING_INPUTS {
+            self.pending.pop_front();
+        }
+    }
+
+    pub fn acknowledge(&mut self, acknowledged: Option<u32>) {
+        let Some(acknowledged) = acknowledged else {
+            return;
+        };
+
+        self.pending
+            .retain(|command| sequence_is_newer(command.sequence, acknowledged));
+    }
+
+    /// Oldest unacknowledged commands first.
+    pub fn send_batch(&self) -> Vec<NetInputCommand> {
+        self.pending
+            .iter()
+            .take(INPUT_BATCH_SIZE)
+            .copied()
+            .collect()
+    }
+
+    pub fn clear(&mut self) {
+        self.pending.clear();
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ReconciliationSample {
+    pub authoritative_position: Vec2,
+    pub acknowledged_input_sequence: Option<u32>,
+}
+
+#[derive(Resource, Default)]
+pub struct ClientReconciliation {
+    pub pending: Option<ReconciliationSample>,
+}
 
 /// Interpolation delay in seconds. Two snapshot intervals at SNAPSHOT_HZ (20Hz)
 /// tolerates one dropped snapshot without stalling.
@@ -188,5 +262,68 @@ mod interpolation_tests {
         let mut interp = ReplicaInterpolation::with_initial(1.0, Vec2::ZERO);
         interp.push_sample(0.5, Vec2::new(9.0, 9.0));
         assert_eq!(interp.samples.len(), 1);
+    }
+
+    fn input(sequence: u32) -> NetInputCommand {
+        NetInputCommand {
+            sequence,
+            movement: [1.0, 0.0],
+            interact: false,
+        }
+    }
+
+    #[test]
+    fn prediction_ack_removes_processed_commands() {
+        let mut prediction = ClientPredictionState::default();
+
+        prediction.push(input(1));
+        prediction.push(input(2));
+        prediction.push(input(3));
+
+        prediction.acknowledge(Some(2));
+
+        let remaining: Vec<u32> = prediction
+            .pending
+            .iter()
+            .map(|command| command.sequence)
+            .collect();
+
+        assert_eq!(remaining, vec![3]);
+    }
+
+    #[test]
+    fn prediction_batch_preserves_oldest_first_order() {
+        let mut prediction = ClientPredictionState::default();
+
+        prediction.push(input(10));
+        prediction.push(input(11));
+        prediction.push(input(12));
+
+        let sequences: Vec<u32> = prediction
+            .send_batch()
+            .iter()
+            .map(|command| command.sequence)
+            .collect();
+
+        assert_eq!(sequences, vec![10, 11, 12]);
+    }
+
+    #[test]
+    fn prediction_ack_handles_sequence_wraparound() {
+        let mut prediction = ClientPredictionState::default();
+
+        prediction.push(input(u32::MAX));
+        prediction.push(input(0));
+        prediction.push(input(1));
+
+        prediction.acknowledge(Some(u32::MAX));
+
+        let remaining: Vec<u32> = prediction
+            .pending
+            .iter()
+            .map(|command| command.sequence)
+            .collect();
+
+        assert_eq!(remaining, vec![0, 1]);
     }
 }

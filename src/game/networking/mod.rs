@@ -94,7 +94,8 @@ impl Plugin for NativeNetworkingPlugin {
         use crate::app::AppState;
         use crate::game::RuntimeMode;
         use crate::game::networking::common::{
-            ClientSnapshotSequence, NetworkIdentity, NetworkMappings, ServerSnapshotSequence,
+            ClientPredictionState, ClientReconciliation, ClientSnapshotSequence, NetworkIdentity,
+            NetworkMappings, ServerSnapshotSequence,
         };
         use crate::game::networking::common::{LobbyBroadcastTimer, SnapshotTimer};
 
@@ -105,6 +106,9 @@ impl Plugin for NativeNetworkingPlugin {
             .init_resource::<NetworkMappings>()
             .init_resource::<ServerSnapshotSequence>()
             .init_resource::<ClientSnapshotSequence>()
+            .init_resource::<ClientPredictionState>()
+            .init_resource::<ClientReconciliation>()
+            .insert_resource(Time::<Fixed>::from_hz(common::PREDICTION_HZ))
             .insert_resource(LobbyBroadcastTimer(Timer::from_seconds(
                 1.0 / LOBBY_BROADCAST_HZ,
                 TimerMode::Repeating,
@@ -147,6 +151,7 @@ impl Plugin for NativeNetworkingPlugin {
                     client::client_send_ready,
                     host::host_receive_reliable_packets,
                     host::host_receive_input_packets,
+                    client::client_receive_packets,
                 )
                     .chain()
                     .in_set(NativeNetSet::ReceivePackets),
@@ -158,7 +163,6 @@ impl Plugin for NativeNetworkingPlugin {
                     host::host_send_match_started,
                     host::host_send_world_snapshots,
                     host::host_relay_local_chat,
-                    client::client_receive_packets,
                     client::client_send_input_packets,
                     client::client_send_actions,
                     client::client_send_chat,
@@ -181,13 +185,41 @@ impl Plugin for NativeNetworkingPlugin {
                     .run_if(|mode: Res<RuntimeMode>| mode.is_remote_client())
                     .run_if(in_state(AppState::InGame)),
             )
-            .add_systems(OnExit(AppState::InGame), reset_client_snapshot_sequence);
+            .add_systems(
+                FixedUpdate,
+                host::apply_remote_input_commands
+                    .run_if(|mode: Res<RuntimeMode>| matches!(*mode, RuntimeMode::Host))
+                    .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                FixedUpdate,
+                (
+                    client::reconcile_local_prediction,
+                    client::predict_local_player,
+                )
+                    .chain()
+                    .run_if(|mode: Res<RuntimeMode>| mode.is_remote_client())
+                    .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(OnEnter(AppState::InGame), reset_network_match_state)
+            .add_systems(OnExit(AppState::InGame), reset_network_match_state);
     }
 }
 
 #[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
-fn reset_client_snapshot_sequence(
-    mut seq: ResMut<crate::game::networking::common::ClientSnapshotSequence>,
+fn reset_network_match_state(
+    mut identity: ResMut<crate::game::networking::common::NetworkIdentity>,
+    mut snapshot: ResMut<crate::game::networking::common::ClientSnapshotSequence>,
+    mut prediction: ResMut<crate::game::networking::common::ClientPredictionState>,
+    mut reconciliation: ResMut<crate::game::networking::common::ClientReconciliation>,
+    mut mappings: ResMut<crate::game::networking::common::NetworkMappings>,
 ) {
-    seq.last_applied = None;
+    identity.input_sequence = 0;
+    snapshot.last_applied = None;
+    prediction.clear();
+    reconciliation.pending = None;
+
+    mappings.pending_inputs.clear();
+    mappings.last_enqueued_input_sequence.clear();
+    mappings.last_processed_input_sequence.clear();
 }

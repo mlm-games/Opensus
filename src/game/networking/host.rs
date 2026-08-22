@@ -6,13 +6,14 @@ use crate::app::AppState;
 use crate::game::{
     ActiveSabotage, Alive, Body, CHAT_MAX_LEN, ChatEntry, ChatState, EmergenciesLeft, GamePhase,
     Ghost, KillCooldownLeft, KillRequest, LobbySlot, LobbyState, LocalPlayer, MatchConfig,
-    MeetingCommand, MeetingState, OutgoingChat, Player, PlayerIntent, ReportBody, Role,
-    SabotageAction, TaskBoard,
+    MeetingCommand, MeetingState, OutgoingChat, Player, PlayerIntent, RemoteNetworkPlayer,
+    ReportBody, Role, SabotageAction, SolidAabb, TaskBoard,
 };
 
 use super::channels::*;
 use super::common::{
-    LobbyBroadcastTimer, NetServerRes, NetworkMappings, ServerSnapshotSequence, SnapshotTimer,
+    INPUT_BATCH_SIZE, LobbyBroadcastTimer, MAX_SERVER_PENDING_INPUTS, NetServerRes,
+    NetworkMappings, ServerSnapshotSequence, SnapshotTimer,
 };
 use super::protocol::*;
 
@@ -50,7 +51,9 @@ pub fn host_handle_connects_and_disconnects(
             }
             ServerEvent::ClientDisconnected { client_id, .. } => {
                 mappings.authenticated_clients.remove(&client_id);
-                mappings.last_input_sequence.remove(&client_id);
+                mappings.pending_inputs.remove(&client_id);
+                mappings.last_enqueued_input_sequence.remove(&client_id);
+                mappings.last_processed_input_sequence.remove(&client_id);
                 if let Some(player_id) = mappings.client_to_player.remove(&client_id) {
                     mappings.player_to_client.remove(&player_id);
                     lobby.slots.retain(|slot| slot.id != player_id);
@@ -265,61 +268,143 @@ pub fn host_receive_reliable_packets(
 pub fn host_receive_input_packets(
     server: Option<ResMut<NetServerRes>>,
     mut mappings: ResMut<NetworkMappings>,
-    mut players: Query<(&Player, &mut PlayerIntent), With<Alive>>,
 ) {
-    let Some(mut server) = server else { return };
+    let Some(mut server) = server else {
+        return;
+    };
 
     for client_id in server.0.clients_id() {
-        let mut processed = 0u32;
+        let mut processed_packets = 0usize;
+
         while let Some(bytes) = server.0.receive_message(client_id, C2S_INPUT) {
-            processed += 1;
-            if processed > 64 {
+            processed_packets += 1;
+
+            if processed_packets > 64 || bytes.len() > 4096 {
                 break;
             }
-            if bytes.len() > 4096 {
-                continue;
-            }
-            let Ok(packet) = bincode::deserialize::<ClientPacket>(&bytes) else {
-                continue;
-            };
 
-            let ClientPacket::Input {
-                sequence,
-                movement,
-                interact,
-            } = packet
+            let Ok(ClientPacket::Input { commands }) = bincode::deserialize::<ClientPacket>(&bytes)
             else {
                 continue;
             };
 
-            if !movement[0].is_finite() || !movement[1].is_finite() {
-                continue;
-            }
-
-            if !mappings.authenticated_clients.contains(&client_id) {
-                continue;
-            }
-
-            if let Some(previous) = mappings.last_input_sequence.get(&client_id)
-                && !super::common::sequence_is_newer(sequence, *previous)
+            if !mappings.authenticated_clients.contains(&client_id)
+                || commands.len() > INPUT_BATCH_SIZE
             {
                 continue;
             }
 
-            mappings.last_input_sequence.insert(client_id, sequence);
+            for command in commands {
+                if !command.movement[0].is_finite() || !command.movement[1].is_finite() {
+                    continue;
+                }
 
-            let Some(player_id) = mappings.client_to_player.get(&client_id).copied() else {
+                if let Some(previous) = mappings.last_enqueued_input_sequence.get(&client_id)
+                    && !super::common::sequence_is_newer(command.sequence, *previous)
+                {
+                    continue;
+                }
+
+                let queue = mappings.pending_inputs.entry(client_id).or_default();
+
+                if queue.len() >= MAX_SERVER_PENDING_INPUTS {
+                    break;
+                }
+
+                queue.push_back(command);
+                mappings
+                    .last_enqueued_input_sequence
+                    .insert(client_id, command.sequence);
+            }
+        }
+    }
+}
+
+pub fn apply_remote_input_commands(
+    time: Res<Time<Fixed>>,
+    phase: Res<GamePhase>,
+    config: Res<MatchConfig>,
+    mut mappings: ResMut<NetworkMappings>,
+    solids: Query<(&Transform, &SolidAabb), Without<Player>>,
+    mut players: Query<
+        (
+            &Player,
+            &mut PlayerIntent,
+            &mut Transform,
+            Option<&Alive>,
+            Option<&Ghost>,
+        ),
+        With<RemoteNetworkPlayer>,
+    >,
+) {
+    let boxes = crate::game::collision::solid_boxes(&solids);
+    let playing = matches!(*phase, GamePhase::Playing);
+
+    for (_, mut intent, _, _, _) in &mut players {
+        intent.movement = Vec2::ZERO;
+        intent.interact = false;
+    }
+
+    let client_ids: Vec<_> = mappings.pending_inputs.keys().copied().collect();
+
+    for client_id in client_ids {
+        let command = {
+            let Some(queue) = mappings.pending_inputs.get_mut(&client_id) else {
                 continue;
             };
 
-            for (player, mut intent) in &mut players {
-                if player.id == player_id {
-                    intent.movement = Vec2::new(movement[0], movement[1]).clamp_length_max(1.0);
-                    intent.interact = interact;
-                    break;
-                }
+            if playing {
+                queue.pop_front()
+            } else {
+                let newest = queue.pop_back();
+                queue.clear();
+                newest
             }
+        };
+
+        let Some(command) = command else {
+            continue;
+        };
+
+        let Some(player_id) = mappings.client_to_player.get(&client_id).copied() else {
+            continue;
+        };
+
+        let Some((player, mut intent, mut transform, alive, ghost)) = players
+            .iter_mut()
+            .find(|(player, _, _, _, _)| player.id == player_id)
+        else {
+            continue;
+        };
+
+        let movement = Vec2::new(command.movement[0], command.movement[1]).clamp_length_max(1.0);
+
+        intent.movement = movement;
+        intent.interact = playing && command.interact;
+
+        if playing {
+            let speed = if ghost.is_some() {
+                player.speed * config.ghost_speed_mul
+            } else {
+                player.speed
+            };
+
+            let position = crate::game::collision::step_player_position(
+                transform.translation.truncate(),
+                movement,
+                speed,
+                time.delta_secs(),
+                alive.is_some(),
+                &boxes,
+            );
+
+            transform.translation.x = position.x;
+            transform.translation.y = position.y;
         }
+
+        mappings
+            .last_processed_input_sequence
+            .insert(client_id, command.sequence);
     }
 }
 
@@ -483,12 +568,20 @@ pub fn host_send_world_snapshots(
                 .as_ref()
                 .map(|m| m.tallies.clone())
                 .unwrap_or_default();
+            let acknowledged_input_sequence =
+                mappings.player_to_client.get(&pid).and_then(|client_id| {
+                    mappings
+                        .last_processed_input_sequence
+                        .get(client_id)
+                        .copied()
+                });
             Some(PrivatePlayerState {
                 kill_cooldown: cd.map(|c| c.0).unwrap_or(0.0),
                 emergencies_left: em.map(|e| e.0).unwrap_or(0),
                 role,
                 voted,
                 vote_tallies: tallies,
+                acknowledged_input_sequence,
             })
         });
 

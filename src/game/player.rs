@@ -49,6 +49,13 @@ pub struct AiPlayer {
     pub reported_this_body: bool,
 }
 
+/// A human-controlled remote client represented in the authoritative host world.
+///
+/// Its movement is applied from fixed-step network commands, not from the
+/// normal latest-intent movement system.
+#[derive(Component, Default)]
+pub struct RemoteNetworkPlayer;
+
 pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
@@ -112,6 +119,7 @@ fn spawn_players_from_lobby(
     mut local_role: ResMut<LocalRole>,
     mut local_player_id: ResMut<LocalPlayerId>,
     mut stats: ResMut<MatchStats>,
+    mode: Res<RuntimeMode>,
 ) {
     local_player_id.0 = None;
     local_role.0 = None;
@@ -251,12 +259,14 @@ fn spawn_players_from_lobby(
                 dir: Vec2::ZERO,
                 reported_this_body: false,
             });
+        } else if matches!(*mode, RuntimeMode::Host) {
+            e.insert(RemoteNetworkPlayer);
         }
         Juice::pop_in(&mut commands, id, 0.35);
     }
 }
 
-fn input_direction(keys: &ButtonInput<KeyCode>) -> Vec2 {
+pub(crate) fn input_direction(keys: &ButtonInput<KeyCode>) -> Vec2 {
     let mut direction = Vec2::ZERO;
 
     if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
@@ -344,11 +354,20 @@ fn apply_intent_movement(
     cfg: Res<MatchConfig>,
     mut living: Query<
         (&Player, &PlayerIntent, &mut Transform),
-        (With<Alive>, Without<LocalPlayer>),
+        (
+            With<Alive>,
+            Without<LocalPlayer>,
+            Without<RemoteNetworkPlayer>,
+        ),
     >,
     mut ghosts: Query<
         (&Player, &PlayerIntent, &mut Transform),
-        (With<Ghost>, Without<Alive>, Without<LocalPlayer>),
+        (
+            With<Ghost>,
+            Without<Alive>,
+            Without<LocalPlayer>,
+            Without<RemoteNetworkPlayer>,
+        ),
     >,
 ) {
     if matches!(*mode, RuntimeMode::Client) {

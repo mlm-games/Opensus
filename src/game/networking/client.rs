@@ -1,20 +1,36 @@
 #![allow(unused_imports)]
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::app::AppState;
 use crate::game::{
-    ActiveSabotage, Alive, Body, CHAT_MAX_LEN, ChatEntry, ChatState, EmergenciesLeft, Ghost,
-    KillCooldownLeft, KillRequest, LobbySlot, LobbyState, LocalPlayer, LocalPlayerId,
-    MeetingCommand, MeetingState, OutgoingChat, Player, PlayerIntent, ReportBody, Role,
-    RuntimeMode, SabotageAction, TaskBoard,
+    ActiveSabotage, Alive, Body, CHAT_MAX_LEN, ChatEntry, ChatState, EmergenciesLeft, GamePhase,
+    Ghost, KillCooldownLeft, KillRequest, LobbySlot, LobbyState, LocalPlayer, LocalPlayerId,
+    MatchConfig, MeetingCommand, MeetingState, OutgoingChat, Player, PlayerIntent, ReportBody,
+    Role, RuntimeMode, SabotageAction, SolidAabb, TaskBoard,
 };
 
 use super::channels::*;
 use super::common::{
-    ClientSnapshotSequence, INTERPOLATION_DELAY, NetClientRes, NetworkIdentity, ReplicaBody,
-    ReplicaInterpolation, ReplicaPlayer, sample_position, sequence_is_newer,
+    ClientPredictionState, ClientReconciliation, ClientSnapshotSequence, INTERPOLATION_DELAY,
+    NetClientRes, NetworkIdentity, ReconciliationSample, ReplicaBody, ReplicaInterpolation,
+    ReplicaPlayer, sample_position, sequence_is_newer,
 };
 use super::protocol::*;
+
+#[derive(SystemParam)]
+pub struct SnapshotSync<'w, 's> {
+    game_phase: Option<ResMut<'w, crate::game::GamePhase>>,
+    active_sab: Option<ResMut<'w, ActiveSabotage>>,
+    tasks: Option<ResMut<'w, TaskBoard>>,
+    meeting: Option<ResMut<'w, MeetingState>>,
+    snapshot_seq: Option<ResMut<'w, ClientSnapshotSequence>>,
+    chat: ResMut<'w, ChatState>,
+    reconciliation: ResMut<'w, ClientReconciliation>,
+    time: Res<'w, Time<Real>>,
+    #[allow(dead_code)]
+    _phantom: std::marker::PhantomData<&'s ()>,
+}
 
 pub fn client_send_hello_once(
     client: Option<ResMut<NetClientRes>>,
@@ -80,30 +96,148 @@ pub fn client_send_chat(
 
 pub fn client_send_input_packets(
     client: Option<ResMut<NetClientRes>>,
-    mut identity: ResMut<NetworkIdentity>,
     mode: Res<RuntimeMode>,
-    players: Query<&PlayerIntent, With<LocalPlayer>>,
     state: Res<State<AppState>>,
+    prediction: Res<ClientPredictionState>,
 ) {
-    if !matches!(*mode, RuntimeMode::Client) || *state.get() != AppState::InGame {
+    if !mode.is_remote_client() || *state.get() != AppState::InGame {
         return;
     }
-    let Some(mut client) = client else { return };
+
+    let Some(mut client) = client else {
+        return;
+    };
+
     if !client.0.is_connected() {
         return;
     }
-    let Ok(intent) = players.single() else { return };
 
-    identity.input_sequence = identity.input_sequence.wrapping_add(1);
+    let commands = prediction.send_batch();
 
-    let packet = ClientPacket::Input {
-        sequence: identity.input_sequence,
-        movement: [intent.movement.x, intent.movement.y],
-        interact: intent.interact,
-    };
+    if commands.is_empty() {
+        return;
+    }
+
+    let packet = ClientPacket::Input { commands };
 
     if let Ok(bytes) = bincode::serialize(&packet) {
         client.0.send_message(C2S_INPUT, bytes);
+    }
+}
+
+pub fn predict_local_player(
+    time: Res<Time<Fixed>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    phase: Res<GamePhase>,
+    config: Res<MatchConfig>,
+    mut identity: ResMut<NetworkIdentity>,
+    mut prediction: ResMut<ClientPredictionState>,
+    solids: Query<(&Transform, &SolidAabb), Without<Player>>,
+    mut local: Query<
+        (
+            &mut PlayerIntent,
+            &mut Transform,
+            Option<&Alive>,
+            Option<&Ghost>,
+        ),
+        With<LocalPlayer>,
+    >,
+) {
+    let Ok((mut intent, mut transform, alive, ghost)) = local.single_mut() else {
+        return;
+    };
+
+    if !matches!(*phase, GamePhase::Playing) {
+        intent.movement = Vec2::ZERO;
+        intent.interact = false;
+        return;
+    }
+
+    let movement = crate::game::player::input_direction(&keys);
+    let interact = keys.pressed(KeyCode::KeyE);
+
+    intent.movement = movement;
+    intent.interact = interact;
+
+    identity.input_sequence = identity.input_sequence.wrapping_add(1);
+
+    let command = crate::game::networking::protocol::NetInputCommand {
+        sequence: identity.input_sequence,
+        movement: [movement.x, movement.y],
+        interact,
+    };
+
+    prediction.push(command);
+
+    let boxes = crate::game::collision::solid_boxes(&solids);
+
+    let speed = if ghost.is_some() {
+        config.player_speed * config.ghost_speed_mul
+    } else {
+        config.player_speed
+    };
+
+    let position = crate::game::collision::step_player_position(
+        transform.translation.truncate(),
+        movement,
+        speed,
+        time.delta_secs(),
+        alive.is_some(),
+        &boxes,
+    );
+
+    transform.translation.x = position.x;
+    transform.translation.y = position.y;
+}
+
+pub fn reconcile_local_prediction(
+    time: Res<Time<Fixed>>,
+    config: Res<MatchConfig>,
+    mut reconciliation: ResMut<ClientReconciliation>,
+    mut prediction: ResMut<ClientPredictionState>,
+    solids: Query<(&Transform, &SolidAabb), Without<Player>>,
+    mut local: Query<(&mut Transform, Option<&Alive>, Option<&Ghost>), With<LocalPlayer>>,
+) {
+    let Some(sample) = reconciliation.pending.take() else {
+        return;
+    };
+
+    let Ok((mut transform, alive, ghost)) = local.single_mut() else {
+        reconciliation.pending = Some(sample);
+        return;
+    };
+
+    prediction.acknowledge(sample.acknowledged_input_sequence);
+
+    let boxes = crate::game::collision::solid_boxes(&solids);
+
+    let speed = if ghost.is_some() {
+        config.player_speed * config.ghost_speed_mul
+    } else {
+        config.player_speed
+    };
+
+    let mut reconciled = sample.authoritative_position;
+
+    for command in &prediction.pending {
+        reconciled = crate::game::collision::step_player_position(
+            reconciled,
+            Vec2::new(command.movement[0], command.movement[1]),
+            speed,
+            time.delta_secs(),
+            alive.is_some(),
+            &boxes,
+        );
+    }
+
+    if transform
+        .translation
+        .truncate()
+        .distance_squared(reconciled)
+        > 0.0001
+    {
+        transform.translation.x = reconciled.x;
+        transform.translation.y = reconciled.y;
     }
 }
 
@@ -158,13 +292,7 @@ pub fn client_receive_packets(
     mut identity: ResMut<NetworkIdentity>,
     mut lobby: ResMut<LobbyState>,
     mut local_role: ResMut<crate::game::LocalRole>,
-    mut game_phase: Option<ResMut<crate::game::GamePhase>>,
-    mut active_sab: Option<ResMut<ActiveSabotage>>,
-    mut tasks: Option<ResMut<TaskBoard>>,
-    mut meeting: Option<ResMut<MeetingState>>,
-    mut snapshot_seq: Option<ResMut<ClientSnapshotSequence>>,
-    mut chat: ResMut<ChatState>,
-    time: Res<Time<Real>>,
+    mut snapshot: SnapshotSync,
     mut replica_players: Query<(
         Entity,
         &ReplicaPlayer,
@@ -227,7 +355,7 @@ pub fn client_receive_packets(
                 text,
                 ghost,
             } => {
-                chat.push(ChatEntry {
+                snapshot.chat.push(ChatEntry {
                     player_id,
                     name,
                     text,
@@ -264,20 +392,35 @@ pub fn client_receive_packets(
             continue;
         };
 
-        if let Some(seq) = snapshot_seq.as_mut()
+        if let Some(seq) = snapshot.snapshot_seq.as_mut()
             && let Some(prev) = seq.last_applied
             && !sequence_is_newer(sequence, prev)
         {
             continue;
         }
-        if let Some(seq) = snapshot_seq.as_mut() {
+        if let Some(seq) = snapshot.snapshot_seq.as_mut() {
             seq.last_applied = Some(sequence);
         }
 
-        if let Some(gp) = game_phase.as_mut() {
+        let acknowledged_input_sequence = private
+            .as_ref()
+            .and_then(|private| private.acknowledged_input_sequence);
+
+        if let Some(local_player_id) = identity.my_player_id
+            && let Some(local_state) = players
+                .iter()
+                .find(|state| state.player_id == local_player_id)
+        {
+            snapshot.reconciliation.pending = Some(ReconciliationSample {
+                authoritative_position: Vec2::new(local_state.position[0], local_state.position[1]),
+                acknowledged_input_sequence,
+            });
+        }
+
+        if let Some(gp) = snapshot.game_phase.as_mut() {
             **gp = phase;
         }
-        if let Some(sab) = active_sab.as_mut() {
+        if let Some(sab) = snapshot.active_sab.as_mut() {
             if let Some(s) = sabotage {
                 sab.kind = Some(s.kind);
                 sab.fixes_needed = s.fixes_needed;
@@ -288,11 +431,11 @@ pub fn client_receive_packets(
                 sab.clear();
             }
         }
-        if let Some(tb) = tasks.as_mut() {
+        if let Some(tb) = snapshot.tasks.as_mut() {
             tb.completed = tasks_completed;
             tb.total = tasks_total;
         }
-        if let Some(m) = meeting.as_mut() {
+        if let Some(m) = snapshot.meeting.as_mut() {
             m.prompt = meeting_prompt;
             m.timer = Timer::from_seconds(meeting_timer.max(0.1), TimerMode::Once);
             m.options = vote_options
@@ -329,7 +472,7 @@ pub fn client_receive_packets(
             }
         }
 
-        let now = time.elapsed_secs_f64();
+        let now = snapshot.time.elapsed_secs_f64();
         let mut seen_players = Vec::new();
 
         for state in players {
@@ -339,7 +482,11 @@ pub fn client_receive_packets(
                 .iter_mut()
                 .find(|(_, marker, ..)| marker.player_id == state.player_id)
             {
-                interp.push_sample(now, Vec2::new(state.position[0], state.position[1]));
+                if identity.my_player_id == Some(state.player_id) {
+                    interp.samples.clear();
+                } else {
+                    interp.push_sample(now, Vec2::new(state.position[0], state.position[1]));
+                }
 
                 if state.alive {
                     sprite.color.set_alpha(1.0);
@@ -445,7 +592,10 @@ pub fn client_receive_packets(
 
 pub fn interpolate_replicas(
     time: Res<Time<Real>>,
-    mut replicas: Query<(&mut Transform, &ReplicaInterpolation), With<ReplicaPlayer>>,
+    mut replicas: Query<
+        (&mut Transform, &ReplicaInterpolation),
+        (With<ReplicaPlayer>, Without<LocalPlayer>),
+    >,
 ) {
     let render_time = time.elapsed_secs_f64() - INTERPOLATION_DELAY;
     for (mut transform, interp) in &mut replicas {

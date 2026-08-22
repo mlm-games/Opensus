@@ -2,8 +2,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::game::{GamePhase, Role, SabotageKind};
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 pub const PROTOCOL_ID: u64 = 0x4F50_454E_5355_5301;
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct NetInputCommand {
+    pub sequence: u32,
+    pub movement: [f32; 2],
+    pub interact: bool,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NetLobbyPlayer {
@@ -47,6 +54,9 @@ pub struct PrivatePlayerState {
     pub role: Role,
     pub voted: bool,
     pub vote_tallies: Vec<(String, u32)>,
+
+    /// Last input command fully simulated by the authoritative server.
+    pub acknowledged_input_sequence: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -59,10 +69,12 @@ pub enum ClientPacket {
     Ready {
         ready: bool,
     },
+    /// Redundant batch of unacknowledged fixed-step commands.
+    ///
+    /// The client resends commands until a snapshot acknowledges them.
+    /// The server ignores duplicates by sequence number.
     Input {
-        sequence: u32,
-        movement: [f32; 2],
-        interact: bool,
+        commands: Vec<NetInputCommand>,
     },
     Kill,
     Report,
