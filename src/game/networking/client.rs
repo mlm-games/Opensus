@@ -141,7 +141,7 @@ pub fn predict_local_player(
             Option<&Alive>,
             Option<&Ghost>,
         ),
-        With<LocalPlayer>,
+        (With<LocalPlayer>, Without<SolidAabb>),
     >,
 ) {
     let Ok((mut intent, mut transform, alive, ghost)) = local.single_mut() else {
@@ -197,7 +197,10 @@ pub fn reconcile_local_prediction(
     mut reconciliation: ResMut<ClientReconciliation>,
     mut prediction: ResMut<ClientPredictionState>,
     solids: Query<(&Transform, &SolidAabb), Without<Player>>,
-    mut local: Query<(&mut Transform, Option<&Alive>, Option<&Ghost>), With<LocalPlayer>>,
+    mut local: Query<
+        (&mut Transform, Option<&Alive>, Option<&Ghost>),
+        (With<LocalPlayer>, Without<SolidAabb>),
+    >,
 ) {
     let Some(sample) = reconciliation.pending.take() else {
         return;
@@ -296,18 +299,21 @@ pub fn client_receive_packets(
     mut snapshot: SnapshotSync,
     game_assets: Res<GameAssets>,
     mut images: ResMut<Assets<Image>>,
-    mut replica_players: Query<(
-        Entity,
-        &ReplicaPlayer,
-        &mut Transform,
-        &mut Sprite,
-        &mut ReplicaInterpolation,
-        Option<&Alive>,
-        Option<&Ghost>,
-        Option<&Children>,
-    )>,
-    mut layer_sprites: Query<&mut Sprite, With<PlayerLayer>>,
-    mut layer_texts: Query<&mut TextColor>,
+    mut replica_players: Query<
+        (
+            Entity,
+            &ReplicaPlayer,
+            &mut Transform,
+            &mut Sprite,
+            &mut ReplicaInterpolation,
+            Option<&Alive>,
+            Option<&Ghost>,
+            Option<&Children>,
+        ),
+        Without<PlayerLayer>,
+    >,
+    mut layer_sprites: Query<&mut Sprite, (With<PlayerLayer>, Without<ReplicaPlayer>)>,
+    mut layer_texts: Query<&mut TextColor, Without<ReplicaPlayer>>,
     replica_bodies: Query<(Entity, &ReplicaBody)>,
     mut local_state: Query<
         (
