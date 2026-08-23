@@ -60,7 +60,63 @@ pub const PLAYER_SPAWNS: [Vec2; 10] = [
     Vec2::new(115.0, 0.0),
 ];
 
-pub const NAV_NODES: [Vec2; 18] = [
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CorridorAxis {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct CorridorSpec {
+    pub center: Vec2,
+    pub size: Vec2,
+    pub axis: CorridorAxis,
+}
+
+pub const CORRIDORS: [CorridorSpec; 8] = [
+    CorridorSpec {
+        center: Vec2::new(-185.0, 52.0),
+        size: Vec2::new(70.0, 72.0),
+        axis: CorridorAxis::Horizontal,
+    },
+    CorridorSpec {
+        center: Vec2::new(-185.0, -52.0),
+        size: Vec2::new(70.0, 72.0),
+        axis: CorridorAxis::Horizontal,
+    },
+    CorridorSpec {
+        center: Vec2::new(185.0, 52.0),
+        size: Vec2::new(70.0, 72.0),
+        axis: CorridorAxis::Horizontal,
+    },
+    CorridorSpec {
+        center: Vec2::new(185.0, -52.0),
+        size: Vec2::new(70.0, 72.0),
+        axis: CorridorAxis::Horizontal,
+    },
+    CorridorSpec {
+        center: Vec2::new(-360.0, 0.0),
+        size: Vec2::new(76.0, 50.0),
+        axis: CorridorAxis::Vertical,
+    },
+    CorridorSpec {
+        center: Vec2::new(360.0, 0.0),
+        size: Vec2::new(76.0, 50.0),
+        axis: CorridorAxis::Vertical,
+    },
+    CorridorSpec {
+        center: Vec2::new(0.0, 147.5),
+        size: Vec2::new(84.0, 85.0),
+        axis: CorridorAxis::Vertical,
+    },
+    CorridorSpec {
+        center: Vec2::new(0.0, -147.5),
+        size: Vec2::new(84.0, 85.0),
+        axis: CorridorAxis::Vertical,
+    },
+];
+
+pub const NAV_NODES: [Vec2; 22] = [
     // Central Briefing paths around the physical meeting table.
     Vec2::new(0.0, 75.0),     // 0: hub north
     Vec2::new(0.0, -75.0),    // 1: hub south
@@ -72,22 +128,31 @@ pub const NAV_NODES: [Vec2; 18] = [
     MEDBAY_CENTER,            // 7
     ELECTRICAL_CENTER,        // 8
     STORAGE_CENTER,           // 9
-    Vec2::new(-185.0, 55.0),  // 10: west upper hall
-    Vec2::new(-185.0, -55.0), // 11: west lower hall
-    Vec2::new(185.0, 55.0),   // 12: east upper hall
-    Vec2::new(185.0, -55.0),  // 13: east lower hall
+    Vec2::new(-185.0, 52.0),  // 10: west upper hall
+    Vec2::new(-185.0, -52.0), // 11: west lower hall
+    Vec2::new(185.0, 52.0),   // 12: east upper hall
+    Vec2::new(185.0, -52.0),  // 13: east lower hall
     Vec2::new(0.0, 145.0),    // 14: north hall
     Vec2::new(0.0, -145.0),   // 15: south hall
     Vec2::new(-360.0, 0.0),   // 16: archives/reactor connector
     Vec2::new(360.0, 0.0),    // 17: comms/medbay connector
+    // Collision-clear route around the briefing table.
+    Vec2::new(-75.0, 70.0),  // 18: northwest
+    Vec2::new(75.0, 70.0),   // 19: northeast
+    Vec2::new(-75.0, -50.0), // 20: southwest
+    Vec2::new(75.0, -50.0),  // 21: southeast
 ];
 
-pub const NAV_EDGES: [(usize, usize); 20] = [
-    // Route around the Briefing table.
-    (0, 2),
-    (0, 3),
-    (1, 2),
-    (1, 3),
+pub const NAV_EDGES: [(usize, usize); 24] = [
+    // Around the briefing table.
+    (0, 18),
+    (0, 19),
+    (1, 20),
+    (1, 21),
+    (2, 18),
+    (2, 20),
+    (3, 19),
+    (3, 21),
     // North and south branches.
     (0, 14),
     (14, 8),
@@ -109,3 +174,13 @@ pub const NAV_EDGES: [(usize, usize); 20] = [
     (5, 17),
     (17, 7),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_one_map_bounds_owner_exists_by_design() {
+        assert_eq!(MAP_FLOOR_SIZE, MAP_BOUNDS * 2.0);
+    }
+}

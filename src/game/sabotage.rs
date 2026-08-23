@@ -63,6 +63,7 @@ pub struct SabotageCooldown {
 
 #[derive(Component)]
 pub struct SabotageFixStation {
+    pub id: u8,
     pub kind: SabotageKind,
     pub progress: f32,
 }
@@ -119,36 +120,42 @@ fn reset_sabotage(mut sabotage: ResMut<ActiveSabotage>, mut cooldown: ResMut<Sab
 fn spawn_fix_stations(mut commands: Commands, assets: Res<GameAssets>) {
     let stations = [
         (
+            0,
             OXYGEN_STATIONS[0],
             SabotageKind::Oxygen,
             assets.task_burner.clone(),
         ),
         (
+            1,
             OXYGEN_STATIONS[1],
             SabotageKind::Oxygen,
             assets.task_burner.clone(),
         ),
         (
+            2,
             REACTOR_STATIONS[0],
             SabotageKind::Reactor,
             assets.task_beaker.clone(),
         ),
         (
+            3,
             REACTOR_STATIONS[1],
             SabotageKind::Reactor,
             assets.task_beaker.clone(),
         ),
         (
+            4,
             LIGHTS_STATION,
             SabotageKind::Lights,
             assets.task_flask.clone(),
         ),
     ];
 
-    for (position, kind, image) in stations {
+    for (id, position, kind, image) in stations {
         commands.spawn((
             MatchCleanup,
             SabotageFixStation {
+                id,
                 kind,
                 progress: 0.0,
             },

@@ -1,15 +1,15 @@
-use bevy::prelude::*;
-
 use super::{
     ARCHIVES_CENTER, ARCHIVES_SIZE, BORDER_THICKNESS, BRIEFING_CENTER, BRIEFING_SIZE, COMMS_CENTER,
-    COMMS_SIZE, ELECTRICAL_CENTER, ELECTRICAL_SIZE, EMERGENCY_BUTTON_POSITION, GameAssets,
-    MAP_BOUNDS, MAP_FLOOR_SIZE, MEDBAY_CENTER, MEDBAY_SIZE, MatchCleanup, REACTOR_CENTER,
-    REACTOR_SIZE, STORAGE_CENTER, STORAGE_SIZE, SolidAabb,
+    COMMS_SIZE, CORRIDORS, CorridorAxis, ELECTRICAL_CENTER, ELECTRICAL_SIZE,
+    EMERGENCY_BUTTON_POSITION, GameAssets, MAP_BOUNDS, MAP_FLOOR_SIZE, MEDBAY_CENTER, MEDBAY_SIZE,
+    MatchCleanup, REACTOR_CENTER, REACTOR_SIZE, STORAGE_CENTER, STORAGE_SIZE, SolidAabb,
 };
 use crate::app::AppState;
+use bevy::prelude::*;
 
 const ROOM_WALL_THICKNESS: f32 = 14.0;
 const DOOR_THRESHOLD_THICKNESS: f32 = 10.0;
+const CORRIDOR_WALL_THICKNESS: f32 = 10.0;
 
 #[derive(Component)]
 pub struct MapRoot;
@@ -96,8 +96,8 @@ const BRIEFING_DOORS: [Doorway; 6] = [
 const ARCHIVES_DOORS: [Doorway; 2] = [
     Doorway {
         side: Side::Right,
-        offset: -45.0,
-        width: 84.0,
+        offset: -68.0,
+        width: 72.0,
     },
     Doorway {
         side: Side::Bottom,
@@ -109,8 +109,8 @@ const ARCHIVES_DOORS: [Doorway; 2] = [
 const COMMS_DOORS: [Doorway; 2] = [
     Doorway {
         side: Side::Left,
-        offset: -45.0,
-        width: 84.0,
+        offset: -68.0,
+        width: 72.0,
     },
     Doorway {
         side: Side::Bottom,
@@ -122,8 +122,8 @@ const COMMS_DOORS: [Doorway; 2] = [
 const REACTOR_DOORS: [Doorway; 2] = [
     Doorway {
         side: Side::Right,
-        offset: 45.0,
-        width: 84.0,
+        offset: 68.0,
+        width: 72.0,
     },
     Doorway {
         side: Side::Top,
@@ -135,8 +135,8 @@ const REACTOR_DOORS: [Doorway; 2] = [
 const MEDBAY_DOORS: [Doorway; 2] = [
     Doorway {
         side: Side::Left,
-        offset: 45.0,
-        width: 84.0,
+        offset: 68.0,
+        width: 72.0,
     },
     Doorway {
         side: Side::Top,
@@ -227,7 +227,7 @@ impl Plugin for MapPlugin {
 fn spawn_map(mut commands: Commands, assets: Res<GameAssets>) {
     spawn_backdrop(&mut commands);
     spawn_base_floor(&mut commands, &assets);
-    spawn_corridor_floors(&mut commands, &assets);
+    spawn_corridors(&mut commands, &assets);
 
     for room in ROOMS {
         spawn_room(&mut commands, &assets, room);
@@ -270,28 +270,16 @@ fn spawn_base_floor(commands: &mut Commands, assets: &GameAssets) {
     ));
 }
 
-fn spawn_corridor_floors(commands: &mut Commands, assets: &GameAssets) {
-    let corridors = [
-        // Briefing to side rooms.
-        (Vec2::new(-185.0, 55.0), Vec2::new(70.0, 72.0)),
-        (Vec2::new(-185.0, -55.0), Vec2::new(70.0, 72.0)),
-        (Vec2::new(185.0, 55.0), Vec2::new(70.0, 72.0)),
-        (Vec2::new(185.0, -55.0), Vec2::new(70.0, 72.0)),
-        // Side-room vertical loops.
-        (Vec2::new(-360.0, 0.0), Vec2::new(76.0, 50.0)),
-        (Vec2::new(360.0, 0.0), Vec2::new(76.0, 50.0)),
-        // Electrical and Storage branches.
-        (Vec2::new(0.0, 147.5), Vec2::new(84.0, 85.0)),
-        (Vec2::new(0.0, -147.5), Vec2::new(84.0, 85.0)),
-    ];
-
-    for (position, size) in corridors {
+/// Spawn each corridor as painted flooring plus physical side walls, so the
+/// walkable space between rooms is exactly the painted corridor.
+fn spawn_corridors(commands: &mut Commands, assets: &GameAssets) {
+    for corridor in CORRIDORS {
         commands.spawn((
             MatchCleanup,
             Sprite {
                 image: assets.floor_carpet.clone(),
                 color: Color::srgb(0.42, 0.50, 0.56),
-                custom_size: Some(size),
+                custom_size: Some(corridor.size),
                 image_mode: SpriteImageMode::Tiled {
                     tile_x: true,
                     tile_y: true,
@@ -299,8 +287,39 @@ fn spawn_corridor_floors(commands: &mut Commands, assets: &GameAssets) {
                 },
                 ..default()
             },
-            Transform::from_xyz(position.x, position.y, 0.6),
+            Transform::from_xyz(corridor.center.x, corridor.center.y, 0.6),
         ));
+
+        let thickness = CORRIDOR_WALL_THICKNESS;
+
+        match corridor.axis {
+            CorridorAxis::Horizontal => {
+                let offset = corridor.size.y * 0.5 + thickness * 0.5;
+
+                for sign in [-1.0, 1.0] {
+                    spawn_wall(
+                        commands,
+                        assets,
+                        corridor.center + Vec2::new(0.0, sign * offset),
+                        Vec2::new(corridor.size.x, thickness),
+                        2.15,
+                    );
+                }
+            }
+            CorridorAxis::Vertical => {
+                let offset = corridor.size.x * 0.5 + thickness * 0.5;
+
+                for sign in [-1.0, 1.0] {
+                    spawn_wall(
+                        commands,
+                        assets,
+                        corridor.center + Vec2::new(sign * offset, 0.0),
+                        Vec2::new(thickness, corridor.size.y),
+                        2.15,
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -641,6 +660,18 @@ mod tests {
             for door in room.doors {
                 assert!(door.width > super::super::PLAYER_RADIUS * 2.0);
             }
+        }
+    }
+
+    #[test]
+    fn corridor_widths_clear_player_diameter() {
+        for corridor in CORRIDORS {
+            let width = match corridor.axis {
+                CorridorAxis::Horizontal => corridor.size.y,
+                CorridorAxis::Vertical => corridor.size.x,
+            };
+
+            assert!(width > super::super::PLAYER_RADIUS * 2.0 + 8.0);
         }
     }
 }

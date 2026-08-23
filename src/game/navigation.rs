@@ -165,7 +165,7 @@ fn segment_intersects_aabb(start: Vec2, end: Vec2, center: Vec2, half_extents: V
 
 #[cfg(test)]
 mod tests {
-    use super::super::MAP_BOUNDS;
+    use super::super::{BRIEFING_CENTER, MAP_BOUNDS};
     use super::*;
 
     #[test]
@@ -199,6 +199,21 @@ mod tests {
     fn graph_connects_every_node() {
         for goal in 0..NAV_NODES.len() {
             assert!(a_star(0, goal).is_some());
+        }
+    }
+
+    #[test]
+    fn central_navigation_avoids_table() {
+        let table = [(
+            BRIEFING_CENTER + Vec2::new(0.0, 10.0),
+            Vec2::new(44.0, 24.0),
+        )];
+
+        for &(left, right) in &NAV_EDGES {
+            assert!(
+                !is_blocked(NAV_NODES[left], NAV_NODES[right], &table),
+                "edge {left}->{right} crosses briefing table"
+            );
         }
     }
 }

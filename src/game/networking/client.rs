@@ -8,7 +8,7 @@ use crate::game::{
     EmergenciesLeft, GameAssets, GamePhase, Ghost, KillCooldownLeft, KillRequest, LobbySlot,
     LobbyState, LocalPlayer, LocalPlayerId, MatchConfig, MeetingCommand, MeetingState,
     OutgoingChat, PLAYER_COLORS, Player, PlayerIntent, PlayerLayer, ReportBody, Role, RuntimeMode,
-    SabotageAction, SolidAabb, TaskBoard, bake_body_tint,
+    SabotageAction, SabotageFixStation, SolidAabb, TaskBoard, TaskStation, bake_body_tint,
 };
 
 use super::channels::*;
@@ -29,6 +29,12 @@ pub struct SnapshotSync<'w, 's> {
     chat: ResMut<'w, ChatState>,
     reconciliation: ResMut<'w, ClientReconciliation>,
     time: Res<'w, Time<Real>>,
+    task_stations: Option<
+        Query<'w, 's, (&'static mut TaskStation, &'static mut Sprite), Without<SabotageFixStation>>,
+    >,
+    fix_stations: Option<
+        Query<'w, 's, (&'static mut SabotageFixStation, &'static mut Sprite), Without<TaskStation>>,
+    >,
     #[allow(dead_code)]
     _phantom: std::marker::PhantomData<&'s ()>,
 }
@@ -394,6 +400,8 @@ pub fn client_receive_packets(
             sabotage,
             tasks_completed,
             tasks_total,
+            task_states,
+            fix_station_states,
             meeting_prompt,
             meeting_timer,
             vote_options,
@@ -432,6 +440,11 @@ pub fn client_receive_packets(
         if let Some(gp) = snapshot.game_phase.as_mut() {
             **gp = phase;
         }
+
+        // Captured before the aggregate state below is consumed, so console
+        // highlight colors can follow the currently active sabotage.
+        let active_sabotage_kind = sabotage.as_ref().map(|state| state.kind);
+
         if let Some(sab) = snapshot.active_sab.as_mut() {
             if let Some(s) = sabotage {
                 sab.kind = Some(s.kind);
@@ -446,6 +459,42 @@ pub fn client_receive_packets(
         if let Some(tb) = snapshot.tasks.as_mut() {
             tb.completed = tasks_completed;
             tb.total = tasks_total;
+        }
+        if let Some(task_stations) = snapshot.task_stations.as_mut() {
+            for net in task_states {
+                if let Some((mut station, mut sprite)) = task_stations
+                    .iter_mut()
+                    .find(|(station, _)| station.id == net.id)
+                {
+                    station.progress = net.progress.clamp(0.0, 1.0);
+                    station.done = net.done;
+
+                    sprite.color = if net.done {
+                        Color::srgba(0.55, 0.55, 0.55, 0.85)
+                    } else {
+                        Color::WHITE
+                    };
+                }
+            }
+        }
+        if let Some(fix_stations) = snapshot.fix_stations.as_mut() {
+            for net in fix_station_states {
+                if let Some((mut station, mut sprite)) = fix_stations
+                    .iter_mut()
+                    .find(|(station, _)| station.id == net.id)
+                {
+                    station.kind = net.kind;
+                    station.progress = net.progress.clamp(0.0, 1.0);
+
+                    sprite.color = if active_sabotage_kind != Some(net.kind) {
+                        Color::srgba(1.0, 1.0, 1.0, 0.0)
+                    } else if station.progress >= 1.0 {
+                        Color::srgba(0.45, 0.75, 0.5, 0.9)
+                    } else {
+                        Color::srgba(1.0, 0.6, 0.15, 1.0)
+                    };
+                }
+            }
         }
         if let Some(m) = snapshot.meeting.as_mut() {
             m.prompt = meeting_prompt;

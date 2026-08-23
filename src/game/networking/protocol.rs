@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::game::{GamePhase, Role, SabotageKind};
 
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 pub const PROTOCOL_ID: u64 = 0x4F50_454E_5355_5301;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -45,6 +45,20 @@ pub struct NetSabotageState {
     pub remaining: f32,
     pub fixes_needed: u8,
     pub fixes_done: u8,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct NetTaskState {
+    pub id: u32,
+    pub progress: f32,
+    pub done: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct NetFixStationState {
+    pub id: u8,
+    pub kind: SabotageKind,
+    pub progress: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -109,6 +123,8 @@ pub enum ServerPacket {
         sabotage: Option<NetSabotageState>,
         tasks_completed: u32,
         tasks_total: u32,
+        task_states: Vec<NetTaskState>,
+        fix_station_states: Vec<NetFixStationState>,
         meeting_prompt: String,
         meeting_timer: f32,
         vote_options: Vec<(u64, String, bool)>,

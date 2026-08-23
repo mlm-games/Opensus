@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use super::{Alive, LocalPlayer, MAP_BOUNDS, Player};
+use super::{MAP_BOUNDS, Player};
 
 pub const PLAYER_RADIUS: f32 = 14.0;
 
@@ -22,57 +22,6 @@ pub struct SolidAabb {
 enum Axis {
     X,
     Y,
-}
-
-/// Correct entities that were spawned or teleported inside geometry.
-///
-/// Normal movement should use `step_player_position`; this is only a defensive
-/// correction for external teleports and state synchronization.
-#[allow(dead_code)]
-pub fn resolve_local_solids(
-    solids: Query<(&Transform, &SolidAabb), Without<Player>>,
-    mut bodies: Query<
-        &mut Transform,
-        (
-            With<Player>,
-            With<LocalPlayer>,
-            With<Alive>,
-            Without<SolidAabb>,
-        ),
-    >,
-) {
-    let boxes = solid_boxes(&solids);
-
-    for mut transform in &mut bodies {
-        let position = depenetrate_circle(transform.translation.truncate(), PLAYER_RADIUS, &boxes);
-
-        transform.translation.x = position.x;
-        transform.translation.y = position.y;
-    }
-}
-
-/// Defensive correction for authoritative non-local living players.
-#[allow(dead_code)]
-pub fn resolve_solids(
-    solids: Query<(&Transform, &SolidAabb), Without<Player>>,
-    mut bodies: Query<
-        &mut Transform,
-        (
-            With<Player>,
-            With<Alive>,
-            Without<LocalPlayer>,
-            Without<SolidAabb>,
-        ),
-    >,
-) {
-    let boxes = solid_boxes(&solids);
-
-    for mut transform in &mut bodies {
-        let position = depenetrate_circle(transform.translation.truncate(), PLAYER_RADIUS, &boxes);
-
-        transform.translation.x = position.x;
-        transform.translation.y = position.y;
-    }
 }
 
 pub(crate) fn solid_boxes(

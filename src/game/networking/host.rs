@@ -8,7 +8,7 @@ use crate::game::{
     ActiveSabotage, Alive, Body, CHAT_MAX_LEN, ChatEntry, ChatState, EmergenciesLeft, GamePhase,
     Ghost, KillCooldownLeft, KillRequest, LobbySlot, LobbyState, LocalPlayer, MatchConfig,
     MeetingCommand, MeetingState, OutgoingChat, Player, PlayerIntent, RemoteNetworkPlayer,
-    ReportBody, Role, SabotageAction, SolidAabb, TaskBoard,
+    ReportBody, Role, SabotageAction, SabotageFixStation, SolidAabb, TaskBoard, TaskStation,
 };
 
 use super::channels::*;
@@ -596,6 +596,8 @@ pub fn host_send_world_snapshots(
         Option<&EmergenciesLeft>,
     )>,
     bodies: Query<(Entity, &Body, &Transform)>,
+    task_stations: Query<&TaskStation>,
+    fix_stations: Query<&SabotageFixStation>,
     mut mappings: ResMut<NetworkMappings>,
 ) {
     let Some(mut server) = server else { return };
@@ -647,6 +649,25 @@ pub fn host_send_world_snapshots(
     });
 
     let (tasks_completed, tasks_total) = tasks.map(|t| (t.completed, t.total)).unwrap_or((0, 0));
+
+    let task_states = task_stations
+        .iter()
+        .map(|station| NetTaskState {
+            id: station.id,
+            progress: station.progress,
+            done: station.done,
+        })
+        .collect::<Vec<_>>();
+
+    let fix_station_states = fix_stations
+        .iter()
+        .map(|station| NetFixStationState {
+            id: station.id,
+            kind: station.kind,
+            progress: station.progress,
+        })
+        .collect::<Vec<_>>();
+
     let (meeting_prompt, meeting_timer, vote_options, result_text) = meeting
         .as_ref()
         .map(|m| {
@@ -706,6 +727,8 @@ pub fn host_send_world_snapshots(
             sabotage: sabotage_state.clone(),
             tasks_completed,
             tasks_total,
+            task_states: task_states.clone(),
+            fix_station_states: fix_station_states.clone(),
             meeting_prompt: meeting_prompt.clone(),
             meeting_timer,
             vote_options: vote_options.clone(),
