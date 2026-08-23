@@ -35,6 +35,9 @@ pub fn run() {
                 })
                 .set(ImagePlugin::default_nearest())
                 .set(AssetPlugin {
+                    #[cfg(target_arch = "wasm32")]
+                    file_path: "assets".to_string(),
+                    #[cfg(not(target_arch = "wasm32"))]
                     file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets").to_string(),
                     ..default()
                 }),
