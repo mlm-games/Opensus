@@ -3,9 +3,6 @@ use serde::{Deserialize, Serialize};
 
 use super::Role;
 
-/// World-space movement bounds (half extents). Kept in sync with the map.
-pub const MAP_BOUNDS: Vec2 = Vec2::new(520.0, 300.0);
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum WinReason {
     /// Shared task bar filled.

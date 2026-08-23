@@ -159,17 +159,6 @@ fn spawn_players_from_lobby(
     stats.players_spawned = slots.len() as u32;
     stats.impostors_spawned = impostor_ids.len() as u32;
 
-    let start_positions = [
-        Vec2::new(-80.0, 0.0),
-        Vec2::new(80.0, 0.0),
-        Vec2::new(40.0, 60.0),
-        Vec2::new(0.0, -60.0),
-        Vec2::new(-120.0, 50.0),
-        Vec2::new(100.0, -60.0),
-        Vec2::new(-60.0, -60.0),
-        Vec2::new(60.0, 60.0),
-    ];
-
     for (i, slot) in slots.iter().enumerate() {
         let role = if impostor_ids.contains(&slot.id) {
             Role::Impostor
@@ -181,7 +170,7 @@ fn spawn_players_from_lobby(
             local_player_id.0 = Some(slot.id);
         }
         let color = PLAYER_COLORS[slot.color_index as usize % PLAYER_COLORS.len()];
-        let pos = start_positions[i % start_positions.len()];
+        let pos = super::PLAYER_SPAWNS[i % super::PLAYER_SPAWNS.len()];
 
         let body_handle = bake_body_tint(&mut images, &assets.body_for(slot.color_index), color)
             .unwrap_or_else(|| assets.body_for(slot.color_index));

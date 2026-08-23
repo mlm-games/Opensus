@@ -1,7 +1,15 @@
 use bevy::prelude::*;
 
-use super::{GameAssets, MatchCleanup, SolidAabb};
+use super::{
+    ARCHIVES_CENTER, ARCHIVES_SIZE, BORDER_THICKNESS, BRIEFING_CENTER, BRIEFING_SIZE, COMMS_CENTER,
+    COMMS_SIZE, ELECTRICAL_CENTER, ELECTRICAL_SIZE, EMERGENCY_BUTTON_POSITION, GameAssets,
+    MAP_BOUNDS, MAP_FLOOR_SIZE, MEDBAY_CENTER, MEDBAY_SIZE, MatchCleanup, REACTOR_CENTER,
+    REACTOR_SIZE, STORAGE_CENTER, STORAGE_SIZE, SolidAabb,
+};
 use crate::app::AppState;
+
+const ROOM_WALL_THICKNESS: f32 = 14.0;
+const DOOR_THRESHOLD_THICKNESS: f32 = 10.0;
 
 #[derive(Component)]
 pub struct MapRoot;
@@ -12,12 +20,204 @@ pub struct Room {
     pub name: &'static str,
 }
 
-/// Map-mounted emergency call button. Emergencies may only be called by a
-/// living player standing within `interact_range` of one of these.
+/// Map-mounted emergency call button.
+///
+/// A living player must stand within `interact_range` before calling a meeting.
 #[derive(Component)]
 pub struct EmergencyButton;
 
+#[derive(Clone, Copy)]
+enum FloorKind {
+    Wood,
+    Carpet,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+#[derive(Clone, Copy)]
+struct Doorway {
+    side: Side,
+
+    /// Offset along the wall: X for top/bottom, Y for left/right.
+    offset: f32,
+
+    width: f32,
+}
+
+#[derive(Clone, Copy)]
+struct RoomSpec {
+    name: &'static str,
+    center: Vec2,
+    size: Vec2,
+    floor: FloorKind,
+    tint: (f32, f32, f32),
+    doors: &'static [Doorway],
+}
+
+const BRIEFING_DOORS: [Doorway; 6] = [
+    Doorway {
+        side: Side::Left,
+        offset: 52.0,
+        width: 72.0,
+    },
+    Doorway {
+        side: Side::Left,
+        offset: -52.0,
+        width: 72.0,
+    },
+    Doorway {
+        side: Side::Right,
+        offset: 52.0,
+        width: 72.0,
+    },
+    Doorway {
+        side: Side::Right,
+        offset: -52.0,
+        width: 72.0,
+    },
+    Doorway {
+        side: Side::Top,
+        offset: 0.0,
+        width: 84.0,
+    },
+    Doorway {
+        side: Side::Bottom,
+        offset: 0.0,
+        width: 84.0,
+    },
+];
+
+const ARCHIVES_DOORS: [Doorway; 2] = [
+    Doorway {
+        side: Side::Right,
+        offset: -45.0,
+        width: 84.0,
+    },
+    Doorway {
+        side: Side::Bottom,
+        offset: 0.0,
+        width: 76.0,
+    },
+];
+
+const COMMS_DOORS: [Doorway; 2] = [
+    Doorway {
+        side: Side::Left,
+        offset: -45.0,
+        width: 84.0,
+    },
+    Doorway {
+        side: Side::Bottom,
+        offset: 0.0,
+        width: 76.0,
+    },
+];
+
+const REACTOR_DOORS: [Doorway; 2] = [
+    Doorway {
+        side: Side::Right,
+        offset: 45.0,
+        width: 84.0,
+    },
+    Doorway {
+        side: Side::Top,
+        offset: 0.0,
+        width: 76.0,
+    },
+];
+
+const MEDBAY_DOORS: [Doorway; 2] = [
+    Doorway {
+        side: Side::Left,
+        offset: 45.0,
+        width: 84.0,
+    },
+    Doorway {
+        side: Side::Top,
+        offset: 0.0,
+        width: 76.0,
+    },
+];
+
+const ELECTRICAL_DOORS: [Doorway; 1] = [Doorway {
+    side: Side::Bottom,
+    offset: 0.0,
+    width: 84.0,
+}];
+
+const STORAGE_DOORS: [Doorway; 1] = [Doorway {
+    side: Side::Top,
+    offset: 0.0,
+    width: 84.0,
+}];
+
+const ROOMS: [RoomSpec; 7] = [
+    RoomSpec {
+        name: "Briefing",
+        center: BRIEFING_CENTER,
+        size: BRIEFING_SIZE,
+        floor: FloorKind::Carpet,
+        tint: (0.72, 0.80, 0.84),
+        doors: &BRIEFING_DOORS,
+    },
+    RoomSpec {
+        name: "Archives",
+        center: ARCHIVES_CENTER,
+        size: ARCHIVES_SIZE,
+        floor: FloorKind::Carpet,
+        tint: (0.72, 0.66, 0.58),
+        doors: &ARCHIVES_DOORS,
+    },
+    RoomSpec {
+        name: "Comms",
+        center: COMMS_CENTER,
+        size: COMMS_SIZE,
+        floor: FloorKind::Carpet,
+        tint: (0.58, 0.72, 0.78),
+        doors: &COMMS_DOORS,
+    },
+    RoomSpec {
+        name: "Reactor",
+        center: REACTOR_CENTER,
+        size: REACTOR_SIZE,
+        floor: FloorKind::Wood,
+        tint: (0.72, 0.58, 0.50),
+        doors: &REACTOR_DOORS,
+    },
+    RoomSpec {
+        name: "Medbay",
+        center: MEDBAY_CENTER,
+        size: MEDBAY_SIZE,
+        floor: FloorKind::Carpet,
+        tint: (0.66, 0.78, 0.72),
+        doors: &MEDBAY_DOORS,
+    },
+    RoomSpec {
+        name: "Electrical",
+        center: ELECTRICAL_CENTER,
+        size: ELECTRICAL_SIZE,
+        floor: FloorKind::Wood,
+        tint: (0.72, 0.68, 0.48),
+        doors: &ELECTRICAL_DOORS,
+    },
+    RoomSpec {
+        name: "Storage",
+        center: STORAGE_CENTER,
+        size: STORAGE_SIZE,
+        floor: FloorKind::Wood,
+        tint: (0.62, 0.58, 0.52),
+        doors: &STORAGE_DOORS,
+    },
+];
+
 pub struct MapPlugin;
+
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(AppState::InGame), spawn_map);
@@ -25,13 +225,40 @@ impl Plugin for MapPlugin {
 }
 
 fn spawn_map(mut commands: Commands, assets: Res<GameAssets>) {
-    // Floor
+    spawn_backdrop(&mut commands);
+    spawn_base_floor(&mut commands, &assets);
+    spawn_corridor_floors(&mut commands, &assets);
+
+    for room in ROOMS {
+        spawn_room(&mut commands, &assets, room);
+    }
+
+    spawn_outer_walls(&mut commands, &assets);
+    spawn_briefing_table(&mut commands, &assets);
+    spawn_emergency_button(&mut commands);
+    spawn_wayfinding_lights(&mut commands);
+}
+
+fn spawn_backdrop(commands: &mut Commands) {
     commands.spawn((
         MatchCleanup,
         MapRoot,
         Sprite {
+            color: Color::srgb(0.025, 0.035, 0.045),
+            custom_size: Some(MAP_FLOOR_SIZE + Vec2::splat(56.0)),
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, -1.0),
+    ));
+}
+
+fn spawn_base_floor(commands: &mut Commands, assets: &GameAssets) {
+    commands.spawn((
+        MatchCleanup,
+        Sprite {
             image: assets.floor_wood.clone(),
-            custom_size: Some(Vec2::new(1100.0, 640.0)),
+            color: Color::srgb(0.52, 0.55, 0.58),
+            custom_size: Some(MAP_FLOOR_SIZE),
             image_mode: SpriteImageMode::Tiled {
                 tile_x: true,
                 tile_y: true,
@@ -41,122 +268,248 @@ fn spawn_map(mut commands: Commands, assets: Res<GameAssets>) {
         },
         Transform::from_xyz(0.0, 0.0, 0.0),
     ));
+}
 
-    let rooms = [
-        (
-            "Archives",
-            Vec2::new(-280.0, 120.0),
-            Vec2::new(220.0, 160.0),
-            true,
-        ),
-        (
-            "Comms",
-            Vec2::new(280.0, 120.0),
-            Vec2::new(220.0, 160.0),
-            true,
-        ),
-        (
-            "Reactor",
-            Vec2::new(-280.0, -120.0),
-            Vec2::new(220.0, 160.0),
-            false,
-        ),
-        (
-            "Medbay",
-            Vec2::new(280.0, -120.0),
-            Vec2::new(220.0, 160.0),
-            true,
-        ),
-        (
-            "Cafeteria",
-            Vec2::new(0.0, 0.0),
-            Vec2::new(240.0, 160.0),
-            false,
-        ),
+fn spawn_corridor_floors(commands: &mut Commands, assets: &GameAssets) {
+    let corridors = [
+        // Briefing to side rooms.
+        (Vec2::new(-185.0, 55.0), Vec2::new(70.0, 72.0)),
+        (Vec2::new(-185.0, -55.0), Vec2::new(70.0, 72.0)),
+        (Vec2::new(185.0, 55.0), Vec2::new(70.0, 72.0)),
+        (Vec2::new(185.0, -55.0), Vec2::new(70.0, 72.0)),
+        // Side-room vertical loops.
+        (Vec2::new(-360.0, 0.0), Vec2::new(76.0, 50.0)),
+        (Vec2::new(360.0, 0.0), Vec2::new(76.0, 50.0)),
+        // Electrical and Storage branches.
+        (Vec2::new(0.0, 147.5), Vec2::new(84.0, 85.0)),
+        (Vec2::new(0.0, -147.5), Vec2::new(84.0, 85.0)),
     ];
 
-    for (name, pos, size, use_carpet) in rooms {
-        let floor = if use_carpet {
-            assets.floor_carpet.clone()
-        } else {
-            assets.floor_wood.clone()
-        };
-
+    for (position, size) in corridors {
         commands.spawn((
             MatchCleanup,
-            Room { name },
             Sprite {
-                image: floor,
+                image: assets.floor_carpet.clone(),
+                color: Color::srgb(0.42, 0.50, 0.56),
                 custom_size: Some(size),
                 image_mode: SpriteImageMode::Tiled {
                     tile_x: true,
                     tile_y: true,
-                    stretch_value: 48.0,
+                    stretch_value: 40.0,
                 },
                 ..default()
             },
-            Transform::from_xyz(pos.x, pos.y, 1.0),
+            Transform::from_xyz(position.x, position.y, 0.6),
         ));
-
-        spawn_room_walls(&mut commands, &assets, pos, size);
-    }
-
-    // Cafeteria props
-    commands.spawn((
-        MatchCleanup,
-        Sprite {
-            image: assets.table.clone(),
-            custom_size: Some(Vec2::new(90.0, 60.0)),
-            ..default()
-        },
-        Transform::from_xyz(0.0, 0.0, 3.0),
-    ));
-    for (x, y) in [(-50.0, -40.0), (50.0, -40.0), (-50.0, 40.0), (50.0, 40.0)] {
-        commands.spawn((
-            MatchCleanup,
-            Sprite {
-                image: assets.seat.clone(),
-                custom_size: Some(Vec2::new(28.0, 28.0)),
-                ..default()
-            },
-            Transform::from_xyz(x, y, 3.0),
-        ));
-    }
-
-    // Emergency button in the cafeteria (map-gated "F" in handle_meeting_commands).
-    commands.spawn((
-        MatchCleanup,
-        EmergencyButton,
-        Sprite {
-            color: Color::srgb(0.85, 0.25, 0.2),
-            custom_size: Some(Vec2::splat(26.0)),
-            ..default()
-        },
-        Transform::from_xyz(0.0, -40.0, 6.0),
-    ));
-
-    // Bounds
-    for y in [320.0, -320.0] {
-        spawn_wall(
-            &mut commands,
-            &assets,
-            Vec2::new(0.0, y),
-            Vec2::new(1120.0, 12.0),
-            2.5,
-        );
-    }
-    for x in [550.0, -550.0] {
-        spawn_wall(
-            &mut commands,
-            &assets,
-            Vec2::new(x, 0.0),
-            Vec2::new(12.0, 640.0),
-            2.5,
-        );
     }
 }
 
-fn spawn_wall(commands: &mut Commands, assets: &GameAssets, pos: Vec2, size: Vec2, z: f32) {
+fn spawn_room(commands: &mut Commands, assets: &GameAssets, room: RoomSpec) {
+    let image = match room.floor {
+        FloorKind::Wood => assets.floor_wood.clone(),
+        FloorKind::Carpet => assets.floor_carpet.clone(),
+    };
+
+    commands.spawn((
+        MatchCleanup,
+        Room { name: room.name },
+        Sprite {
+            image,
+            color: Color::srgb(room.tint.0, room.tint.1, room.tint.2),
+            custom_size: Some(room.size),
+            image_mode: SpriteImageMode::Tiled {
+                tile_x: true,
+                tile_y: true,
+                stretch_value: 48.0,
+            },
+            ..default()
+        },
+        Transform::from_xyz(room.center.x, room.center.y, 1.0),
+    ));
+
+    spawn_room_walls(commands, assets, room);
+    spawn_room_label(commands, room);
+}
+
+fn spawn_room_walls(commands: &mut Commands, assets: &GameAssets, room: RoomSpec) {
+    let half = room.size * 0.5;
+
+    for side in [Side::Top, Side::Bottom] {
+        let y = room.center.y + if side == Side::Top { half.y } else { -half.y };
+
+        let gaps = doorway_spans(room, side);
+
+        for (start, end) in split_spans(-half.x, half.x, &gaps) {
+            spawn_wall(
+                commands,
+                assets,
+                Vec2::new(room.center.x + (start + end) * 0.5, y),
+                Vec2::new(end - start, ROOM_WALL_THICKNESS),
+                2.2,
+            );
+        }
+    }
+
+    for side in [Side::Left, Side::Right] {
+        let x = room.center.x + if side == Side::Right { half.x } else { -half.x };
+
+        let gaps = doorway_spans(room, side);
+
+        for (start, end) in split_spans(-half.y, half.y, &gaps) {
+            spawn_wall(
+                commands,
+                assets,
+                Vec2::new(x, room.center.y + (start + end) * 0.5),
+                Vec2::new(ROOM_WALL_THICKNESS, end - start),
+                2.2,
+            );
+        }
+    }
+
+    for doorway in room.doors {
+        spawn_door_threshold(commands, assets, room, *doorway);
+    }
+}
+
+fn doorway_spans(room: RoomSpec, side: Side) -> Vec<(f32, f32)> {
+    room.doors
+        .iter()
+        .filter(|door| door.side == side)
+        .map(|door| {
+            (
+                door.offset - door.width * 0.5,
+                door.offset + door.width * 0.5,
+            )
+        })
+        .collect()
+}
+
+fn split_spans(start: f32, end: f32, gaps: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    let mut gaps = gaps.to_vec();
+
+    gaps.sort_by(|left, right| {
+        left.0
+            .partial_cmp(&right.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let mut spans = Vec::new();
+    let mut cursor = start;
+
+    for (gap_start, gap_end) in gaps {
+        let gap_start = gap_start.clamp(start, end);
+        let gap_end = gap_end.clamp(start, end);
+
+        if gap_end <= cursor || gap_end <= gap_start {
+            continue;
+        }
+
+        if gap_start > cursor {
+            spans.push((cursor, gap_start));
+        }
+
+        cursor = cursor.max(gap_end);
+    }
+
+    if cursor < end {
+        spans.push((cursor, end));
+    }
+
+    spans
+}
+
+fn spawn_door_threshold(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    room: RoomSpec,
+    doorway: Doorway,
+) {
+    let half = room.size * 0.5;
+
+    let (position, size) = match doorway.side {
+        Side::Top => (
+            room.center + Vec2::new(doorway.offset, half.y),
+            Vec2::new(doorway.width, DOOR_THRESHOLD_THICKNESS),
+        ),
+        Side::Bottom => (
+            room.center + Vec2::new(doorway.offset, -half.y),
+            Vec2::new(doorway.width, DOOR_THRESHOLD_THICKNESS),
+        ),
+        Side::Left => (
+            room.center + Vec2::new(-half.x, doorway.offset),
+            Vec2::new(DOOR_THRESHOLD_THICKNESS, doorway.width),
+        ),
+        Side::Right => (
+            room.center + Vec2::new(half.x, doorway.offset),
+            Vec2::new(DOOR_THRESHOLD_THICKNESS, doorway.width),
+        ),
+    };
+
+    commands.spawn((
+        MatchCleanup,
+        Sprite {
+            image: assets.door.clone(),
+            color: Color::srgba(0.75, 0.86, 0.9, 0.72),
+            custom_size: Some(size),
+            ..default()
+        },
+        Transform::from_xyz(position.x, position.y, 2.05),
+    ));
+}
+
+fn spawn_room_label(commands: &mut Commands, room: RoomSpec) {
+    let position = room.center + Vec2::new(0.0, room.size.y * 0.5 - 20.0);
+
+    let plaque_width = room.name.len() as f32 * 8.0 + 28.0;
+
+    commands.spawn((
+        MatchCleanup,
+        Sprite {
+            color: Color::srgba(0.025, 0.04, 0.055, 0.82),
+            custom_size: Some(Vec2::new(plaque_width, 24.0)),
+            ..default()
+        },
+        Transform::from_xyz(position.x, position.y, 3.2),
+    ));
+
+    commands.spawn((
+        MatchCleanup,
+        Text2d::new(room.name.to_uppercase()),
+        TextFont::from_font_size(12.0),
+        TextColor(Color::srgb(0.82, 0.93, 0.96)),
+        Transform::from_xyz(position.x, position.y, 3.3),
+    ));
+}
+
+fn spawn_outer_walls(commands: &mut Commands, assets: &GameAssets) {
+    let horizontal_size = Vec2::new(MAP_FLOOR_SIZE.x + BORDER_THICKNESS * 2.0, BORDER_THICKNESS);
+
+    let vertical_size = Vec2::new(BORDER_THICKNESS, MAP_FLOOR_SIZE.y + BORDER_THICKNESS * 2.0);
+
+    let wall_x = MAP_BOUNDS.x + BORDER_THICKNESS * 0.5;
+    let wall_y = MAP_BOUNDS.y + BORDER_THICKNESS * 0.5;
+
+    for y in [wall_y, -wall_y] {
+        spawn_wall(commands, assets, Vec2::new(0.0, y), horizontal_size, 2.5);
+    }
+
+    for x in [wall_x, -wall_x] {
+        spawn_wall(commands, assets, Vec2::new(x, 0.0), vertical_size, 2.5);
+    }
+}
+
+fn spawn_wall(commands: &mut Commands, assets: &GameAssets, position: Vec2, size: Vec2, z: f32) {
+    // Small drop shadow makes the wall silhouette readable against the floor.
+    commands.spawn((
+        MatchCleanup,
+        Sprite {
+            color: Color::srgba(0.0, 0.0, 0.0, 0.34),
+            custom_size: Some(size + Vec2::splat(4.0)),
+            ..default()
+        },
+        Transform::from_xyz(position.x + 3.0, position.y - 3.0, z - 0.04),
+    ));
+
     commands.spawn((
         MatchCleanup,
         SolidAabb {
@@ -168,101 +521,126 @@ fn spawn_wall(commands: &mut Commands, assets: &GameAssets, pos: Vec2, size: Vec
             } else {
                 assets.wall_side.clone()
             },
-            color: Color::srgba(1.0, 1.0, 1.0, 0.85),
+            color: Color::srgba(0.88, 0.94, 0.96, 0.94),
             custom_size: Some(size),
             ..default()
         },
-        Transform::from_xyz(pos.x, pos.y, z),
+        Transform::from_xyz(position.x, position.y, z),
     ));
 }
 
-fn spawn_room_walls(commands: &mut Commands, assets: &GameAssets, center: Vec2, size: Vec2) {
-    let half = size * 0.5;
-    let gaps = room_gaps(center);
-    let wall_z = 2.0;
+fn spawn_briefing_table(commands: &mut Commands, assets: &GameAssets) {
+    let position = BRIEFING_CENTER + Vec2::new(0.0, 10.0);
+    let size = Vec2::new(100.0, 60.0);
 
-    // Horizontal walls (top/bottom): segments along x, y fixed.
-    for (y_off, which) in [(half.y, "top"), (-half.y, "bottom")] {
-        let y = center.y + y_off;
-        for (a, b) in split_spans(-half.x, half.x, gaps.get(which).map(Vec::as_slice)) {
-            let x = (a + b) * 0.5;
-            spawn_wall(
-                commands,
-                assets,
-                Vec2::new(x, y),
-                Vec2::new(b - a, 18.0),
-                wall_z,
-            );
-        }
-    }
+    commands.spawn((
+        MatchCleanup,
+        SolidAabb {
+            // Slightly smaller than the visible sprite to avoid snagging.
+            half_extents: Vec2::new(44.0, 24.0),
+        },
+        Sprite {
+            image: assets.table.clone(),
+            custom_size: Some(size),
+            ..default()
+        },
+        Transform::from_xyz(position.x, position.y, 3.0),
+    ));
 
-    // Vertical walls (left/right): segments along y, x fixed.
-    for (x_off, which) in [(-half.x, "left"), (half.x, "right")] {
-        let x = center.x + x_off;
-        for (a, b) in split_spans(-half.y, half.y, gaps.get(which).map(Vec::as_slice)) {
-            let y = (a + b) * 0.5;
-            spawn_wall(
-                commands,
-                assets,
-                Vec2::new(x, y),
-                Vec2::new(14.0, b - a),
-                wall_z,
-            );
-        }
+    let seats = [
+        Vec2::new(-44.0, 50.0),
+        Vec2::new(0.0, 50.0),
+        Vec2::new(44.0, 50.0),
+        Vec2::new(-44.0, -34.0),
+        Vec2::new(0.0, -34.0),
+        Vec2::new(44.0, -34.0),
+    ];
+
+    for offset in seats {
+        let seat_position = position + offset;
+
+        commands.spawn((
+            MatchCleanup,
+            Sprite {
+                image: assets.seat.clone(),
+                color: Color::srgb(0.74, 0.78, 0.8),
+                custom_size: Some(Vec2::splat(26.0)),
+                ..default()
+            },
+            Transform::from_xyz(seat_position.x, seat_position.y, 2.9),
+        ));
     }
 }
 
-fn room_gaps(center: Vec2) -> std::collections::HashMap<&'static str, Vec<(f32, f32)>> {
-    let mut gaps = std::collections::HashMap::<&'static str, Vec<(f32, f32)>>::new();
-    match (center.x, center.y) {
-        // Cafeteria - hub, connects to all four rooms.
-        (0.0, 0.0) => {
-            gaps.insert("bottom", vec![(-70.0, -10.0), (10.0, 70.0)]);
-            gaps.insert("left", vec![(10.0, 70.0)]);
-            gaps.insert("right", vec![(10.0, 70.0)]);
-        }
-        // Archives - connects to Cafeteria (east) and Reactor (south).
-        (-280.0, 120.0) => {
-            gaps.insert("bottom", vec![(-40.0, 20.0)]);
-            gaps.insert("right", vec![(40.0, 90.0)]);
-        }
-        // Comms - connects to Cafeteria (west) and Medbay (south).
-        (280.0, 120.0) => {
-            gaps.insert("bottom", vec![(-20.0, 50.0)]);
-            gaps.insert("left", vec![(40.0, 90.0)]);
-        }
-        // Reactor - connects to Cafeteria (north) and Archives (north).
-        (-280.0, -120.0) => {
-            gaps.insert("top", vec![(-40.0, 20.0)]);
-        }
-        // Medbay - connects to Cafeteria (north) and Comms (north).
-        (280.0, -120.0) => {
-            gaps.insert("top", vec![(30.0, 90.0)]);
-        }
-        _ => {}
-    }
-    gaps
+fn spawn_emergency_button(commands: &mut Commands) {
+    commands.spawn((
+        MatchCleanup,
+        EmergencyButton,
+        Sprite {
+            color: Color::srgb(0.92, 0.16, 0.12),
+            custom_size: Some(Vec2::splat(24.0)),
+            ..default()
+        },
+        Transform::from_xyz(
+            EMERGENCY_BUTTON_POSITION.x,
+            EMERGENCY_BUTTON_POSITION.y,
+            6.0,
+        ),
+    ));
 }
 
-fn split_spans(start: f32, end: f32, gaps: Option<&[(f32, f32)]>) -> Vec<(f32, f32)> {
-    let Some(gaps) = gaps else {
-        return vec![(start, end)];
-    };
-    let mut result = Vec::new();
-    let mut cursor = start;
-    let mut sorted: Vec<(f32, f32)> = gaps.to_vec();
-    sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    for (ga, gb) in sorted {
-        let ga = ga.max(start);
-        let gb = gb.min(end);
-        if ga <= cursor || gb <= ga {
-            continue;
+fn spawn_wayfinding_lights(commands: &mut Commands) {
+    let lights = [
+        (Vec2::new(-185.0, 55.0), Color::srgb(0.35, 0.8, 0.95)),
+        (Vec2::new(-185.0, -55.0), Color::srgb(0.95, 0.4, 0.25)),
+        (Vec2::new(185.0, 55.0), Color::srgb(0.35, 0.8, 0.95)),
+        (Vec2::new(185.0, -55.0), Color::srgb(0.45, 0.9, 0.6)),
+        (Vec2::new(0.0, 145.0), Color::srgb(0.95, 0.8, 0.25)),
+        (Vec2::new(0.0, -145.0), Color::srgb(0.75, 0.65, 0.45)),
+    ];
+
+    for (position, color) in lights {
+        commands.spawn((
+            MatchCleanup,
+            Sprite {
+                color,
+                custom_size: Some(Vec2::splat(7.0)),
+                ..default()
+            },
+            Transform::from_xyz(position.x, position.y, 3.6),
+        ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_spans_removes_sorted_and_unsorted_gaps() {
+        let spans = split_spans(-100.0, 100.0, &[(20.0, 40.0), (-40.0, -20.0)]);
+
+        assert_eq!(spans, vec![(-100.0, -40.0), (-20.0, 20.0), (40.0, 100.0)]);
+    }
+
+    #[test]
+    fn every_room_stays_inside_map_bounds() {
+        for room in ROOMS {
+            let half = room.size * 0.5;
+
+            assert!(room.center.x - half.x >= -MAP_BOUNDS.x);
+            assert!(room.center.x + half.x <= MAP_BOUNDS.x);
+            assert!(room.center.y - half.y >= -MAP_BOUNDS.y);
+            assert!(room.center.y + half.y <= MAP_BOUNDS.y);
         }
-        result.push((cursor, ga));
-        cursor = gb;
     }
-    if cursor < end {
-        result.push((cursor, end));
+
+    #[test]
+    fn every_door_is_wide_enough_for_a_player() {
+        for room in ROOMS {
+            for door in room.doors {
+                assert!(door.width > super::super::PLAYER_RADIUS * 2.0);
+            }
+        }
     }
-    result
 }

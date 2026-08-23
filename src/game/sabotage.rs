@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 
-use super::{Alive, GameAssets, GamePhase, LocalPlayer, MatchCleanup, MatchConfig, Player, Role};
+use super::{
+    Alive, GameAssets, GamePhase, LIGHTS_STATION, LocalPlayer, MatchCleanup, MatchConfig,
+    OXYGEN_STATIONS, Player, REACTOR_STATIONS, Role,
+};
 use crate::app::{AppState, Paused};
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::transitions::Transition;
@@ -116,27 +119,27 @@ fn reset_sabotage(mut sabotage: ResMut<ActiveSabotage>, mut cooldown: ResMut<Sab
 fn spawn_fix_stations(mut commands: Commands, assets: Res<GameAssets>) {
     let stations = [
         (
-            Vec2::new(-200.0, 80.0),
+            OXYGEN_STATIONS[0],
             SabotageKind::Oxygen,
             assets.task_burner.clone(),
         ),
         (
-            Vec2::new(200.0, 80.0),
+            OXYGEN_STATIONS[1],
             SabotageKind::Oxygen,
             assets.task_burner.clone(),
         ),
         (
-            Vec2::new(-200.0, -80.0),
+            REACTOR_STATIONS[0],
             SabotageKind::Reactor,
             assets.task_beaker.clone(),
         ),
         (
-            Vec2::new(200.0, -80.0),
+            REACTOR_STATIONS[1],
             SabotageKind::Reactor,
             assets.task_beaker.clone(),
         ),
         (
-            Vec2::new(0.0, 140.0),
+            LIGHTS_STATION,
             SabotageKind::Lights,
             assets.task_flask.clone(),
         ),
@@ -152,7 +155,7 @@ fn spawn_fix_stations(mut commands: Commands, assets: Res<GameAssets>) {
             Sprite {
                 image,
                 color: Color::srgba(1.0, 1.0, 1.0, 0.0),
-                custom_size: Some(Vec2::splat(18.0)),
+                custom_size: Some(Vec2::splat(22.0)),
                 ..default()
             },
             Transform::from_xyz(position.x, position.y, 5.0),
