@@ -63,6 +63,7 @@ pub struct SabotageCooldown {
 
 #[derive(Component)]
 pub struct SabotageFixStation {
+    #[allow(dead_code, reason = "Only read by the networking replication code")]
     pub id: u8,
     pub kind: SabotageKind,
     pub progress: f32,
