@@ -2,10 +2,10 @@ use bevy::prelude::*;
 use rand::seq::{IndexedRandom, SliceRandom};
 
 use super::{
-    ActiveSabotage, Alive, Body, CHARACTER_HEIGHT, EmergenciesLeft, EmergencyButton, GameAssets,
-    GamePhase, Ghost, KillCooldownLeft, KillRequest, LocalRole, MatchCleanup, MatchConfig,
-    MatchStats, PlayerLayer, ReportBody, Role, SabotageFixContribution, SabotageFixStation,
-    TaskStation, bake_body_tint,
+    ActiveSabotage, Alive, Body, CHARACTER_HEIGHT, EmergenciesLeft, EmergencyButton,
+    EmergencyCooldownLeft, GameAssets, GamePhase, Ghost, KillCooldownLeft, KillRequest, LocalRole,
+    MAP_BOUNDS, MatchCleanup, MatchConfig, MatchStats, PlayerLayer, ReportBody, Role,
+    SabotageFixContribution, SabotageFixStation, TaskStation, assign_tasks, bake_body_tint,
 };
 use crate::app::{AppState, Paused};
 use crate::game::RuntimeMode;
@@ -39,13 +39,24 @@ pub struct PlayerIntent {
     pub interact: bool,
 }
 
+#[derive(Component, Default)]
+pub struct PlayerAnimation {
+    phase: f32,
+    blend: f32,
+}
+
+#[derive(Component, Clone, Copy)]
+struct PlayerLayerRest {
+    translation: Vec3,
+    scale: Vec3,
+}
+
 #[derive(Component)]
 pub struct AiPlayer {
     pub repath: Timer,
     pub action: Timer,
     pub target_task: Option<Entity>,
     pub dir: Vec2,
-
     pub reported_this_body: bool,
 }
 
@@ -90,7 +101,9 @@ impl Plugin for PlayerPlugin {
                     ai_brain,
                     ai_ghost_brain,
                     apply_intent_movement,
+                    capture_player_layer_rest,
                     face_movement,
+                    animate_player_layers,
                 )
                     .chain()
                     .in_set(super::ResolveStep::Ai)
@@ -113,6 +126,7 @@ fn spawn_players_from_lobby(
     mut local_role: ResMut<LocalRole>,
     mut local_player_id: ResMut<LocalPlayerId>,
     mut stats: ResMut<MatchStats>,
+    mut task_board: ResMut<super::TaskBoard>,
     mode: Res<RuntimeMode>,
 ) {
     local_player_id.0 = None;
@@ -129,7 +143,6 @@ fn spawn_players_from_lobby(
             is_host: true,
             is_bot: false,
         });
-        // bot crewmates for sandbox
         for i in 0..cfg.bot_count as u64 {
             slots.push(super::lobby::LobbySlot {
                 id: 10 + i,
@@ -159,6 +172,13 @@ fn spawn_players_from_lobby(
     stats.players_spawned = slots.len() as u32;
     stats.impostors_spawned = impostor_ids.len() as u32;
 
+    let crewmate_count = slots
+        .iter()
+        .filter(|slot| !impostor_ids.contains(&slot.id))
+        .count() as u32;
+    task_board.completed = 0;
+    task_board.total = crewmate_count.saturating_mul(cfg.tasks_per_crewmate as u32);
+
     for (i, slot) in slots.iter().enumerate() {
         let role = if impostor_ids.contains(&slot.id) {
             Role::Impostor
@@ -187,9 +207,10 @@ fn spawn_players_from_lobby(
             role,
             Alive,
             PlayerIntent::default(),
+            PlayerAnimation::default(),
             EmergenciesLeft(cfg.emergency_meetings),
+            EmergencyCooldownLeft(cfg.emergency_cooldown),
             SabotageFixContribution::default(),
-            // Invisible root hit/logic anchor (layers are children).
             Sprite {
                 color: Color::NONE,
                 custom_size: Some(Vec2::splat(1.0)),
@@ -199,8 +220,11 @@ fn spawn_players_from_lobby(
         ));
 
         if matches!(role, Role::Impostor) {
-            // Start locked like Among Us.
             e.insert(KillCooldownLeft(cfg.kill_cooldown));
+        }
+
+        if matches!(role, Role::Crewmate) {
+            e.insert(assign_tasks(slot.id, cfg.tasks_per_crewmate as usize));
         }
 
         e.with_children(|c| {
@@ -222,7 +246,6 @@ fn spawn_players_from_lobby(
                 },
                 Transform::from_xyz(0.0, 0.0, 0.2),
             ));
-            // Name tag above the head.
             c.spawn((
                 Text2d::new(slot.name.clone()),
                 TextFont::from_font_size(14.0),
@@ -301,7 +324,6 @@ fn local_intent_and_move(
     let direction = input_direction(&keys);
     let interact = keys.pressed(KeyCode::KeyE);
 
-    // A network client is moved by fixed-step prediction/reconciliation.
     if matches!(*mode, RuntimeMode::Client) {
         if let Ok((_, mut intent, _)) = living.single_mut() {
             intent.movement = direction;
@@ -454,7 +476,6 @@ fn ai_brain(
         ai.action.tick(time.delta());
         let pos = tf.translation.truncate();
 
-        // 1) Report a nearby body once per approach (no per-frame spam).
         let near_body = bodies
             .iter()
             .filter(|(_, b)| !b.reported)
@@ -472,7 +493,6 @@ fn ai_brain(
         }
         ai.reported_this_body = false;
 
-        // 2) Impostor kill when cooldown is ready.
         if matches!(role, Role::Impostor) {
             let cd_ok = kill_cd.as_ref().map(|c| c.0 <= 0.0).unwrap_or(false);
             let p = cfg.bot_kill_aggression * time.delta_secs() * 2.0;
@@ -483,7 +503,6 @@ fn ai_brain(
             }
         }
 
-        // 3) Impostor: opportunistic sabotage when nothing is active.
         if matches!(role, Role::Impostor)
             && !sabotage.is_active()
             && cooldown.remaining <= 0.0
@@ -503,8 +522,6 @@ fn ai_brain(
             });
         }
 
-        // 4) Crew: active sabotage outranks tasks - path to the nearest
-        //    incomplete fix station and hold E there.
         if matches!(role, Role::Crewmate)
             && let Some(kind) = sabotage.kind
         {
@@ -531,13 +548,9 @@ fn ai_brain(
             }
         }
 
-        // 5) Walk to a targeted task (crewmates reliably, impostors fake).
         if ai.repath.just_finished() || ai.target_task.is_none() {
             let mut best: Option<(Entity, f32)> = None;
             for (te, tt, st) in &tasks {
-                if st.done {
-                    continue;
-                }
                 if matches!(role, Role::Impostor) && rand::random::<f32>() > 0.15 {
                     continue;
                 }
@@ -554,13 +567,7 @@ fn ai_brain(
         }
 
         if let Some(tid) = ai.target_task {
-            if let Ok((_, tt, st)) = tasks.get(tid) {
-                if st.done {
-                    ai.target_task = None;
-                    intent.interact = false;
-                    intent.movement = ai.dir;
-                    continue;
-                }
+            if let Ok((_, tt, _)) = tasks.get(tid) {
                 let target = tt.translation.truncate();
                 let dist = pos.distance(target);
                 if dist <= cfg.interact_range * 0.85 {
@@ -612,10 +619,7 @@ fn ai_ghost_brain(
 
         if ai.repath.just_finished() || ai.target_task.is_none() {
             let mut best: Option<(Entity, f32)> = None;
-            for (te, tt, st) in &tasks {
-                if st.done {
-                    continue;
-                }
+            for (te, tt, _st) in &tasks {
                 let d = pos.distance(tt.translation.truncate());
                 if best.is_none_or(|(_, bd)| d < bd) {
                     best = Some((te, d));
@@ -629,13 +633,7 @@ fn ai_ghost_brain(
         }
 
         if let Some(tid) = ai.target_task {
-            if let Ok((_, tt, st)) = tasks.get(tid) {
-                if st.done {
-                    ai.target_task = None;
-                    intent.interact = false;
-                    intent.movement = ai.dir;
-                    continue;
-                }
+            if let Ok((_, tt, _st)) = tasks.get(tid) {
                 let delta = tt.translation.truncate() - pos;
                 let dist = delta.length();
                 if dist <= cfg.interact_range * 0.85 {
@@ -704,9 +702,21 @@ fn update_local_prompt(
     }
     if tasks
         .iter()
-        .any(|(tt, s)| !s.done && pos.distance(tt.translation.truncate()) <= cfg.interact_range)
+        .any(|(tt, _)| pos.distance(tt.translation.truncate()) <= cfg.interact_range)
     {
         prompt.0 = "E - Hold to work".into();
+    }
+}
+
+fn capture_player_layer_rest(
+    mut commands: Commands,
+    layers: Query<(Entity, &Transform), Added<PlayerLayer>>,
+) {
+    for (entity, transform) in &layers {
+        commands.entity(entity).insert(PlayerLayerRest {
+            translation: transform.translation,
+            scale: transform.scale,
+        });
     }
 }
 
@@ -727,37 +737,69 @@ fn face_movement(
     }
 }
 
+fn animate_player_layers(
+    time: Res<Time>,
+    mut players: Query<(&PlayerIntent, &mut PlayerAnimation, &Children)>,
+    mut layers: Query<(&mut Transform, &PlayerLayerRest), With<PlayerLayer>>,
+) {
+    for (intent, mut animation, children) in &mut players {
+        let moving = intent.movement.length().clamp(0.0, 1.0);
+        let blend_target = moving;
+        let blend_alpha = 1.0 - (-14.0 * time.delta_secs()).exp();
+
+        animation.blend += (blend_target - animation.blend) * blend_alpha;
+        animation.phase += time.delta_secs() * (8.5 + moving * 2.5) * moving;
+
+        let step = animation.phase.sin();
+        let bob = step.abs() * 2.4 * animation.blend;
+        let lean = step * 0.025 * animation.blend;
+        let squash = step.abs() * 0.035 * animation.blend;
+
+        for child in children.iter() {
+            let Ok((mut transform, rest)) = layers.get_mut(child) else {
+                continue;
+            };
+
+            let facing = transform.scale.x.signum();
+
+            transform.translation = rest.translation + Vec3::new(0.0, bob, 0.0);
+            transform.rotation = Quat::from_rotation_z(lean);
+            transform.scale.x = rest.scale.x.abs() * facing * (1.0 - squash * 0.35);
+            transform.scale.y = rest.scale.y * (1.0 + squash);
+        }
+    }
+}
+
+const CAMERA_FOLLOW_RATE: f32 = 9.0;
+const CAMERA_LOOK_AHEAD: f32 = 72.0;
+
 pub fn camera_follow(
     time: Res<Time>,
-    config: Res<MatchConfig>,
+    player: Query<(&Transform, &PlayerIntent), With<LocalPlayer>>,
     mut camera: Query<&mut CameraBase, With<Camera2d>>,
-    local: Query<&Transform, (With<LocalPlayer>, Without<Camera2d>)>,
 ) {
-    let Ok(mut base) = camera.single_mut() else {
+    let Ok((player_transform, intent)) = player.single() else {
         return;
     };
-    let Ok(player) = local.single() else {
+    let Ok(mut camera) = camera.single_mut() else {
         return;
     };
 
-    // Keep the camera inside the map bounds, with a margin so it never
-    // frames empty space beyond the outer walls.
-    let margin = Vec2::new(200.0, 140.0);
-    let target = Vec3::new(
-        player.translation.x.clamp(
-            -super::MAP_BOUNDS.x + margin.x,
-            super::MAP_BOUNDS.x - margin.x,
-        ),
-        player.translation.y.clamp(
-            -super::MAP_BOUNDS.y + margin.y,
-            super::MAP_BOUNDS.y - margin.y,
-        ),
-        1000.0,
+    let player_position = player_transform.translation.truncate();
+    let look_ahead = intent.movement.normalize_or_zero() * CAMERA_LOOK_AHEAD;
+
+    let desired = Vec2::new(
+        (player_position.x + look_ahead.x).clamp(-MAP_BOUNDS.x, MAP_BOUNDS.x),
+        (player_position.y + look_ahead.y).clamp(-MAP_BOUNDS.y, MAP_BOUNDS.y),
     );
 
-    let alpha = 1.0 - (-config.camera_follow_sharpness * time.delta_secs()).exp();
+    let current = camera.translation.truncate();
+    let blend = 1.0 - (-CAMERA_FOLLOW_RATE * time.delta_secs()).exp();
+    let next = current.lerp(desired, blend);
 
-    base.translation = base.translation.lerp(target, alpha);
+    camera.translation.x = next.x;
+    camera.translation.y = next.y;
+    camera.translation.z = 1000.0;
 }
 
 pub const PLAYER_COLORS: [Color; 12] = [

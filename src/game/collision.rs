@@ -215,6 +215,52 @@ pub(crate) fn clamp_to_map(mut position: Vec2, margin: f32) -> Vec2 {
     position
 }
 
+pub fn segment_clear(from: Vec2, to: Vec2, solids: &[(Vec2, Vec2)], padding: f32) -> bool {
+    solids.iter().all(|(center, half_extents)| {
+        !segment_intersects_aabb(from, to, *center, *half_extents + Vec2::splat(padding))
+    })
+}
+
+fn segment_intersects_aabb(from: Vec2, to: Vec2, center: Vec2, half_extents: Vec2) -> bool {
+    let min = center - half_extents;
+    let max = center + half_extents;
+    let delta = to - from;
+
+    let mut enter = 0.0_f32;
+    let mut exit = 1.0_f32;
+
+    for axis in 0..2 {
+        let origin = if axis == 0 { from.x } else { from.y };
+        let direction = if axis == 0 { delta.x } else { delta.y };
+        let slab_min = if axis == 0 { min.x } else { min.y };
+        let slab_max = if axis == 0 { max.x } else { max.y };
+
+        if direction.abs() <= f32::EPSILON {
+            if origin < slab_min || origin > slab_max {
+                return false;
+            }
+            continue;
+        }
+
+        let inverse = 1.0 / direction;
+        let mut first = (slab_min - origin) * inverse;
+        let mut second = (slab_max - origin) * inverse;
+
+        if first > second {
+            std::mem::swap(&mut first, &mut second);
+        }
+
+        enter = enter.max(first);
+        exit = exit.min(second);
+
+        if enter > exit {
+            return false;
+        }
+    }
+
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

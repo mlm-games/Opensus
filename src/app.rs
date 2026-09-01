@@ -301,6 +301,10 @@ fn apply_saved_settings(save: Res<SaveData>, mut locale: ResMut<LocaleResources>
 fn setup_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
+        Projection::Orthographic(OrthographicProjection {
+            scale: 0.65,
+            ..OrthographicProjection::default_2d()
+        }),
         Transform::from_xyz(0.0, 0.0, 1000.0),
         CameraBase {
             translation: Vec3::new(0.0, 0.0, 1000.0),

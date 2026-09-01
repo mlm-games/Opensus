@@ -55,6 +55,7 @@ pub struct MatchConfig {
     pub max_players: u8,
     pub impostor_count: u8,
     pub emergency_meetings: u8,
+    pub emergency_cooldown: f32,
 
     pub kill_cooldown: f32,
     pub kill_range: f32,
@@ -66,6 +67,7 @@ pub struct MatchConfig {
     pub role_reveal_time: f32,
 
     pub tasks_to_win: u32,
+    pub tasks_per_crewmate: u8,
     pub task_hold_time: f32,
 
     pub interact_range: f32,
@@ -105,34 +107,36 @@ impl Default for MatchConfig {
             max_players: 10,
             impostor_count: 1,
             emergency_meetings: 1,
+            emergency_cooldown: 15.0,
 
-            kill_cooldown: 15.0,
-            kill_range: 48.0,
+            kill_cooldown: 25.0,
+            kill_range: 68.0,
 
-            discussion_time: 25.0,
-            voting_time: 25.0,
-            results_time: 5.0,
-            role_reveal_time: 4.0,
+            discussion_time: 30.0,
+            voting_time: 75.0,
+            results_time: 4.5,
+            role_reveal_time: 2.8,
 
             tasks_to_win: 4,
-            task_hold_time: 2.0,
+            tasks_per_crewmate: 4,
+            task_hold_time: 1.35,
 
-            interact_range: 42.0,
-            report_range: 52.0,
+            interact_range: 58.0,
+            report_range: 96.0,
 
-            sabotage_cooldown: 20.0,
+            sabotage_cooldown: 25.0,
             oxygen_time: 30.0,
-            reactor_time: 45.0,
-            sabotage_fix_time: 2.5,
+            reactor_time: 35.0,
+            sabotage_fix_time: 1.25,
             reactor_sync_window: 0.75,
 
-            player_speed: 220.0,
+            player_speed: 185.0,
             ghost_speed_mul: 1.15,
             camera_follow_sharpness: 9.0,
 
-            bot_count: 3,
+            bot_count: 7,
             bot_task_weight: 0.65,
-            bot_report_range: 70.0,
+            bot_report_range: 96.0,
             bot_kill_aggression: 0.55,
         }
     }

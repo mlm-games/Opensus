@@ -1,15 +1,13 @@
 use super::{
-    ARCHIVES_CENTER, ARCHIVES_SIZE, BORDER_THICKNESS, BRIEFING_CENTER, BRIEFING_SIZE, COMMS_CENTER,
-    COMMS_SIZE, CORRIDORS, CorridorAxis, ELECTRICAL_CENTER, ELECTRICAL_SIZE,
-    EMERGENCY_BUTTON_POSITION, GameAssets, MAP_BOUNDS, MAP_FLOOR_SIZE, MEDBAY_CENTER, MEDBAY_SIZE,
-    MatchCleanup, REACTOR_CENTER, REACTOR_SIZE, STORAGE_CENTER, STORAGE_SIZE, SolidAabb,
+    BRIEFING_CENTER, CORRIDORS, CorridorAxis, Doorway, EMERGENCY_BUTTON_POSITION, FloorKind,
+    GameAssets, MAP_FLOOR_SIZE, MatchCleanup, ROOMS, RoomSpec, Side, SolidAabb,
 };
 use crate::app::AppState;
 use bevy::prelude::*;
 
-const ROOM_WALL_THICKNESS: f32 = 14.0;
-const DOOR_THRESHOLD_THICKNESS: f32 = 10.0;
-const CORRIDOR_WALL_THICKNESS: f32 = 10.0;
+const ROOM_WALL_THICKNESS: f32 = 18.0;
+const DOOR_THRESHOLD_THICKNESS: f32 = 12.0;
+const CORRIDOR_WALL_THICKNESS: f32 = 14.0;
 
 #[derive(Component)]
 pub struct MapRoot;
@@ -26,196 +24,6 @@ pub struct Room {
 #[derive(Component)]
 pub struct EmergencyButton;
 
-#[derive(Clone, Copy)]
-enum FloorKind {
-    Wood,
-    Carpet,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Side {
-    Top,
-    Bottom,
-    Left,
-    Right,
-}
-
-#[derive(Clone, Copy)]
-struct Doorway {
-    side: Side,
-
-    /// Offset along the wall: X for top/bottom, Y for left/right.
-    offset: f32,
-
-    width: f32,
-}
-
-#[derive(Clone, Copy)]
-struct RoomSpec {
-    name: &'static str,
-    center: Vec2,
-    size: Vec2,
-    floor: FloorKind,
-    tint: (f32, f32, f32),
-    doors: &'static [Doorway],
-}
-
-const BRIEFING_DOORS: [Doorway; 6] = [
-    Doorway {
-        side: Side::Left,
-        offset: 52.0,
-        width: 72.0,
-    },
-    Doorway {
-        side: Side::Left,
-        offset: -52.0,
-        width: 72.0,
-    },
-    Doorway {
-        side: Side::Right,
-        offset: 52.0,
-        width: 72.0,
-    },
-    Doorway {
-        side: Side::Right,
-        offset: -52.0,
-        width: 72.0,
-    },
-    Doorway {
-        side: Side::Top,
-        offset: 0.0,
-        width: 84.0,
-    },
-    Doorway {
-        side: Side::Bottom,
-        offset: 0.0,
-        width: 84.0,
-    },
-];
-
-const ARCHIVES_DOORS: [Doorway; 2] = [
-    Doorway {
-        side: Side::Right,
-        offset: -68.0,
-        width: 72.0,
-    },
-    Doorway {
-        side: Side::Bottom,
-        offset: 0.0,
-        width: 76.0,
-    },
-];
-
-const COMMS_DOORS: [Doorway; 2] = [
-    Doorway {
-        side: Side::Left,
-        offset: -68.0,
-        width: 72.0,
-    },
-    Doorway {
-        side: Side::Bottom,
-        offset: 0.0,
-        width: 76.0,
-    },
-];
-
-const REACTOR_DOORS: [Doorway; 2] = [
-    Doorway {
-        side: Side::Right,
-        offset: 68.0,
-        width: 72.0,
-    },
-    Doorway {
-        side: Side::Top,
-        offset: 0.0,
-        width: 76.0,
-    },
-];
-
-const MEDBAY_DOORS: [Doorway; 2] = [
-    Doorway {
-        side: Side::Left,
-        offset: 68.0,
-        width: 72.0,
-    },
-    Doorway {
-        side: Side::Top,
-        offset: 0.0,
-        width: 76.0,
-    },
-];
-
-const ELECTRICAL_DOORS: [Doorway; 1] = [Doorway {
-    side: Side::Bottom,
-    offset: 0.0,
-    width: 84.0,
-}];
-
-const STORAGE_DOORS: [Doorway; 1] = [Doorway {
-    side: Side::Top,
-    offset: 0.0,
-    width: 84.0,
-}];
-
-const ROOMS: [RoomSpec; 7] = [
-    RoomSpec {
-        name: "Briefing",
-        center: BRIEFING_CENTER,
-        size: BRIEFING_SIZE,
-        floor: FloorKind::Carpet,
-        tint: (0.72, 0.80, 0.84),
-        doors: &BRIEFING_DOORS,
-    },
-    RoomSpec {
-        name: "Archives",
-        center: ARCHIVES_CENTER,
-        size: ARCHIVES_SIZE,
-        floor: FloorKind::Carpet,
-        tint: (0.72, 0.66, 0.58),
-        doors: &ARCHIVES_DOORS,
-    },
-    RoomSpec {
-        name: "Comms",
-        center: COMMS_CENTER,
-        size: COMMS_SIZE,
-        floor: FloorKind::Carpet,
-        tint: (0.58, 0.72, 0.78),
-        doors: &COMMS_DOORS,
-    },
-    RoomSpec {
-        name: "Reactor",
-        center: REACTOR_CENTER,
-        size: REACTOR_SIZE,
-        floor: FloorKind::Wood,
-        tint: (0.72, 0.58, 0.50),
-        doors: &REACTOR_DOORS,
-    },
-    RoomSpec {
-        name: "Medbay",
-        center: MEDBAY_CENTER,
-        size: MEDBAY_SIZE,
-        floor: FloorKind::Carpet,
-        tint: (0.66, 0.78, 0.72),
-        doors: &MEDBAY_DOORS,
-    },
-    RoomSpec {
-        name: "Electrical",
-        center: ELECTRICAL_CENTER,
-        size: ELECTRICAL_SIZE,
-        floor: FloorKind::Wood,
-        tint: (0.72, 0.68, 0.48),
-        doors: &ELECTRICAL_DOORS,
-    },
-    RoomSpec {
-        name: "Storage",
-        center: STORAGE_CENTER,
-        size: STORAGE_SIZE,
-        floor: FloorKind::Wood,
-        tint: (0.62, 0.58, 0.52),
-        doors: &STORAGE_DOORS,
-    },
-];
-
 pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
@@ -226,14 +34,12 @@ impl Plugin for MapPlugin {
 
 fn spawn_map(mut commands: Commands, assets: Res<GameAssets>) {
     spawn_backdrop(&mut commands);
-    spawn_base_floor(&mut commands, &assets);
     spawn_corridors(&mut commands, &assets);
 
     for room in ROOMS {
         spawn_room(&mut commands, &assets, room);
     }
 
-    spawn_outer_walls(&mut commands, &assets);
     spawn_briefing_table(&mut commands, &assets);
     spawn_emergency_button(&mut commands);
     spawn_wayfinding_lights(&mut commands);
@@ -252,24 +58,6 @@ fn spawn_backdrop(commands: &mut Commands) {
     ));
 }
 
-fn spawn_base_floor(commands: &mut Commands, assets: &GameAssets) {
-    commands.spawn((
-        MatchCleanup,
-        Sprite {
-            image: assets.floor_wood.clone(),
-            color: Color::srgb(0.52, 0.55, 0.58),
-            custom_size: Some(MAP_FLOOR_SIZE),
-            image_mode: SpriteImageMode::Tiled {
-                tile_x: true,
-                tile_y: true,
-                stretch_value: 64.0,
-            },
-            ..default()
-        },
-        Transform::from_xyz(0.0, 0.0, 0.0),
-    ));
-}
-
 /// Spawn each corridor as painted flooring plus physical side walls, so the
 /// walkable space between rooms is exactly the painted corridor.
 fn spawn_corridors(commands: &mut Commands, assets: &GameAssets) {
@@ -277,8 +65,18 @@ fn spawn_corridors(commands: &mut Commands, assets: &GameAssets) {
         commands.spawn((
             MatchCleanup,
             Sprite {
+                color: Color::srgba(0.015, 0.025, 0.035, 0.98),
+                custom_size: Some(corridor.size + Vec2::splat(26.0)),
+                ..default()
+            },
+            Transform::from_xyz(corridor.center.x + 5.0, corridor.center.y - 7.0, 0.45),
+        ));
+
+        commands.spawn((
+            MatchCleanup,
+            Sprite {
                 image: assets.floor_carpet.clone(),
-                color: Color::srgb(0.42, 0.50, 0.56),
+                color: Color::srgb(0.34, 0.43, 0.49),
                 custom_size: Some(corridor.size),
                 image_mode: SpriteImageMode::Tiled {
                     tile_x: true,
@@ -324,6 +122,16 @@ fn spawn_corridors(commands: &mut Commands, assets: &GameAssets) {
 }
 
 fn spawn_room(commands: &mut Commands, assets: &GameAssets, room: RoomSpec) {
+    commands.spawn((
+        MatchCleanup,
+        Sprite {
+            color: Color::srgba(0.01, 0.018, 0.027, 0.98),
+            custom_size: Some(room.size + Vec2::splat(34.0)),
+            ..default()
+        },
+        Transform::from_xyz(room.center.x + 7.0, room.center.y - 9.0, 0.82),
+    ));
+
     let image = match room.floor {
         FloorKind::Wood => assets.floor_wood.clone(),
         FloorKind::Carpet => assets.floor_carpet.clone(),
@@ -500,23 +308,6 @@ fn spawn_room_label(commands: &mut Commands, room: RoomSpec) {
     ));
 }
 
-fn spawn_outer_walls(commands: &mut Commands, assets: &GameAssets) {
-    let horizontal_size = Vec2::new(MAP_FLOOR_SIZE.x + BORDER_THICKNESS * 2.0, BORDER_THICKNESS);
-
-    let vertical_size = Vec2::new(BORDER_THICKNESS, MAP_FLOOR_SIZE.y + BORDER_THICKNESS * 2.0);
-
-    let wall_x = MAP_BOUNDS.x + BORDER_THICKNESS * 0.5;
-    let wall_y = MAP_BOUNDS.y + BORDER_THICKNESS * 0.5;
-
-    for y in [wall_y, -wall_y] {
-        spawn_wall(commands, assets, Vec2::new(0.0, y), horizontal_size, 2.5);
-    }
-
-    for x in [wall_x, -wall_x] {
-        spawn_wall(commands, assets, Vec2::new(x, 0.0), vertical_size, 2.5);
-    }
-}
-
 fn spawn_wall(commands: &mut Commands, assets: &GameAssets, position: Vec2, size: Vec2, z: f32) {
     // Small drop shadow makes the wall silhouette readable against the floor.
     commands.spawn((
@@ -550,13 +341,12 @@ fn spawn_wall(commands: &mut Commands, assets: &GameAssets, position: Vec2, size
 
 fn spawn_briefing_table(commands: &mut Commands, assets: &GameAssets) {
     let position = BRIEFING_CENTER + Vec2::new(0.0, 10.0);
-    let size = Vec2::new(100.0, 60.0);
+    let size = Vec2::new(160.0, 92.0);
 
     commands.spawn((
         MatchCleanup,
         SolidAabb {
-            // Slightly smaller than the visible sprite to avoid snagging.
-            half_extents: Vec2::new(44.0, 24.0),
+            half_extents: Vec2::new(72.0, 38.0),
         },
         Sprite {
             image: assets.table.clone(),
@@ -567,12 +357,12 @@ fn spawn_briefing_table(commands: &mut Commands, assets: &GameAssets) {
     ));
 
     let seats = [
-        Vec2::new(-44.0, 50.0),
-        Vec2::new(0.0, 50.0),
-        Vec2::new(44.0, 50.0),
-        Vec2::new(-44.0, -34.0),
-        Vec2::new(0.0, -34.0),
-        Vec2::new(44.0, -34.0),
+        Vec2::new(-68.0, 70.0),
+        Vec2::new(0.0, 70.0),
+        Vec2::new(68.0, 70.0),
+        Vec2::new(-68.0, -52.0),
+        Vec2::new(0.0, -52.0),
+        Vec2::new(68.0, -52.0),
     ];
 
     for offset in seats {
@@ -610,12 +400,12 @@ fn spawn_emergency_button(commands: &mut Commands) {
 
 fn spawn_wayfinding_lights(commands: &mut Commands) {
     let lights = [
-        (Vec2::new(-185.0, 55.0), Color::srgb(0.35, 0.8, 0.95)),
-        (Vec2::new(-185.0, -55.0), Color::srgb(0.95, 0.4, 0.25)),
-        (Vec2::new(185.0, 55.0), Color::srgb(0.35, 0.8, 0.95)),
-        (Vec2::new(185.0, -55.0), Color::srgb(0.45, 0.9, 0.6)),
-        (Vec2::new(0.0, 145.0), Color::srgb(0.95, 0.8, 0.25)),
-        (Vec2::new(0.0, -145.0), Color::srgb(0.75, 0.65, 0.45)),
+        (Vec2::new(-450.0, 65.0), Color::srgb(0.35, 0.8, 0.95)),
+        (Vec2::new(-450.0, -65.0), Color::srgb(0.95, 0.4, 0.25)),
+        (Vec2::new(450.0, 65.0), Color::srgb(0.35, 0.8, 0.95)),
+        (Vec2::new(450.0, -65.0), Color::srgb(0.45, 0.9, 0.6)),
+        (Vec2::new(0.0, 290.0), Color::srgb(0.95, 0.8, 0.25)),
+        (Vec2::new(0.0, -290.0), Color::srgb(0.75, 0.65, 0.45)),
     ];
 
     for (position, color) in lights {
@@ -623,7 +413,7 @@ fn spawn_wayfinding_lights(commands: &mut Commands) {
             MatchCleanup,
             Sprite {
                 color,
-                custom_size: Some(Vec2::splat(7.0)),
+                custom_size: Some(Vec2::splat(9.0)),
                 ..default()
             },
             Transform::from_xyz(position.x, position.y, 3.6),
@@ -647,10 +437,10 @@ mod tests {
         for room in ROOMS {
             let half = room.size * 0.5;
 
-            assert!(room.center.x - half.x >= -MAP_BOUNDS.x);
-            assert!(room.center.x + half.x <= MAP_BOUNDS.x);
-            assert!(room.center.y - half.y >= -MAP_BOUNDS.y);
-            assert!(room.center.y + half.y <= MAP_BOUNDS.y);
+            assert!(room.center.x - half.x >= -super::super::MAP_BOUNDS.x);
+            assert!(room.center.x + half.x <= super::super::MAP_BOUNDS.x);
+            assert!(room.center.y - half.y >= -super::super::MAP_BOUNDS.y);
+            assert!(room.center.y + half.y <= super::super::MAP_BOUNDS.y);
         }
     }
 

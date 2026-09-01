@@ -462,13 +462,10 @@ pub fn client_receive_packets(
         }
         if let Some(task_stations) = snapshot.task_stations.as_mut() {
             for net in task_states {
-                if let Some((mut station, mut sprite)) = task_stations
+                if let Some((_station, mut sprite)) = task_stations
                     .iter_mut()
                     .find(|(station, _)| station.id == net.id)
                 {
-                    station.progress = net.progress.clamp(0.0, 1.0);
-                    station.done = net.done;
-
                     sprite.color = if net.done {
                         Color::srgba(0.55, 0.55, 0.55, 0.85)
                     } else {

@@ -16,6 +16,7 @@ mod player;
 mod roles;
 mod sabotage;
 mod tasks;
+mod vents;
 mod vision;
 
 pub use assets::*;
@@ -35,6 +36,7 @@ pub use player::*;
 pub use roles::*;
 pub use sabotage::*;
 pub use tasks::*;
+pub use vents::*;
 pub use vision::*;
 
 use bevy::ecs::schedule::ApplyDeferred;
@@ -95,6 +97,7 @@ impl Plugin for GamePlugin {
                 MeetingVotePlugin,
                 SabotagePlugin,
                 VisionPlugin,
+                VentsPlugin,
                 NetworkingPlugin,
                 ChatPlugin,
                 GameAudioPlugin,
@@ -102,6 +105,20 @@ impl Plugin for GamePlugin {
             ))
             .add_systems(OnEnter(AppState::InGame), setup_match)
             .add_systems(OnExit(AppState::InGame), cleanup_match)
+            .add_systems(
+                Update,
+                tick_emergency_cooldowns
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(|p: Res<Paused>| !p.0)
+                    .run_if(|ph: Res<GamePhase>| matches!(*ph, GamePhase::Playing))
+                    .run_if(has_authority),
+            )
+            .add_systems(
+                Update,
+                reset_cooldowns_after_meeting
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(has_authority),
+            )
             .add_systems(
                 Update,
                 (
@@ -422,6 +439,36 @@ pub fn apply_game_over(
     if let Err(e) = manager.save(&*save) {
         warn!("failed to save match result: {e}");
     }
+}
+
+fn tick_emergency_cooldowns(
+    time: Res<Time>,
+    mut players: Query<&mut EmergencyCooldownLeft, With<Alive>>,
+) {
+    for mut cooldown in &mut players {
+        cooldown.0 = (cooldown.0 - time.delta_secs()).max(0.0);
+    }
+}
+
+fn reset_cooldowns_after_meeting(
+    phase: Res<GamePhase>,
+    cfg: Res<MatchConfig>,
+    mut previous: Local<Option<GamePhase>>,
+    mut players: Query<(Option<&mut KillCooldownLeft>, &mut EmergencyCooldownLeft), With<Alive>>,
+) {
+    let returned_to_play =
+        matches!(*phase, GamePhase::Playing) && matches!(*previous, Some(GamePhase::Results));
+
+    if returned_to_play {
+        for (kill, mut emergency) in &mut players {
+            if let Some(mut kill) = kill {
+                kill.0 = cfg.kill_cooldown;
+            }
+            emergency.0 = cfg.emergency_cooldown;
+        }
+    }
+
+    *previous = Some(*phase);
 }
 
 /// Runs once when entering GameOver: stop sabotage HUD/timers so nothing

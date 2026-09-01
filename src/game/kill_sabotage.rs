@@ -6,10 +6,39 @@ use super::{
     MatchCleanup, MatchConfig, MeetingState, Player, Role, make_ghost,
 };
 use crate::app::{AppState, Paused};
+use bevy::ecs::system::SystemParam;
 use game_utils_bevy::game_feel::GameFeel;
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::transitions::Transition;
 use game_utils_bevy::vfx::VfxSpawner;
+
+#[derive(SystemParam)]
+struct KillQueries<'w, 's> {
+    actors: Query<
+        'w,
+        's,
+        (
+            &'static Transform,
+            &'static Role,
+            &'static Player,
+            &'static mut KillCooldownLeft,
+        ),
+        With<Alive>,
+    >,
+    targets: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static Player,
+            &'static Transform,
+            &'static Role,
+            Option<&'static Children>,
+        ),
+        With<Alive>,
+    >,
+    solids: Query<'w, 's, (&'static Transform, &'static crate::game::SolidAabb)>,
+}
 
 #[derive(Message, Clone, Copy)]
 pub struct KillRequest {
@@ -83,8 +112,7 @@ fn do_kill(
     stats: Res<super::MatchStats>,
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
-    mut actors: Query<(&Transform, &Role, &Player, &mut KillCooldownLeft), With<Alive>>,
-    targets: Query<(Entity, &Player, &Transform, &Role, Option<&Children>), With<Alive>>,
+    mut kill_queries: KillQueries,
     mut sprites: Query<&mut Sprite>,
     mut texts: Query<&mut TextColor>,
     gamepads: Query<(Entity, &Gamepad)>,
@@ -95,6 +123,12 @@ fn do_kill(
         return;
     }
 
+    let solid_boxes = kill_queries
+        .solids
+        .iter()
+        .map(|(transform, solid)| (transform.translation.truncate(), solid.half_extents))
+        .collect::<Vec<_>>();
+
     let mut killed_this_frame = std::collections::HashSet::<Entity>::new();
 
     for request in requests.read() {
@@ -104,7 +138,8 @@ fn do_kill(
 
         let actor_id = request.actor_id;
 
-        let Some((actor_transform, actor_role, _, mut cd)) = actors
+        let Some((actor_transform, actor_role, _, mut cd)) = kill_queries
+            .actors
             .iter_mut()
             .find(|(_, _, player, _)| player.id == actor_id)
         else {
@@ -118,23 +153,25 @@ fn do_kill(
         let actor_position = actor_transform.translation.truncate();
         let mut best: Option<(Entity, Vec2, u64, String, u8)> = None;
         let mut best_d = cfg.kill_range;
-        for (e, p, t, r, _) in &targets {
+        for (e, p, t, r, _) in &kill_queries.targets {
             if p.id == actor_id {
                 continue; // no self kill
             }
             if matches!(r, Role::Impostor) {
                 continue; // no team kill in v1
             }
-            let d = actor_position.distance(t.translation.truncate());
-            if d < best_d {
+            let target_position = t.translation.truncate();
+            let d = actor_position.distance(target_position);
+            if d < best_d
+                && crate::game::collision::segment_clear(
+                    actor_position,
+                    target_position,
+                    &solid_boxes,
+                    2.0,
+                )
+            {
                 best_d = d;
-                best = Some((
-                    e,
-                    t.translation.truncate(),
-                    p.id,
-                    p.name.clone(),
-                    p.color_index,
-                ));
+                best = Some((e, target_position, p.id, p.name.clone(), p.color_index));
             }
         }
         let Some((victim, pos, id, name, color_index)) = best else {
@@ -146,7 +183,7 @@ fn do_kill(
         killed_this_frame.insert(victim);
         cd.0 = cfg.kill_cooldown;
 
-        let children = targets.get(victim).ok().and_then(|t| t.4);
+        let children = kill_queries.targets.get(victim).ok().and_then(|t| t.4);
         make_ghost(&mut commands, victim, children, &mut sprites, &mut texts);
 
         commands.spawn((
@@ -177,7 +214,7 @@ fn do_kill(
 
         let mut crew = 0u32;
         let mut imps = 0u32;
-        for (e, _, _, r, _) in &targets {
+        for (e, _, _, r, _) in &kill_queries.targets {
             if e == victim {
                 continue;
             }

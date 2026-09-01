@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 
 use super::{
-    ActiveSabotage, Alive, GamePhase, Ghost, MatchConfig, Player, PlayerIntent, Role,
-    SabotageFixStation, SabotageKind, TaskBoard, TaskStation,
+    ActiveSabotage, Alive, GamePhase, Ghost, MatchConfig, Player, PlayerIntent, PlayerTasks, Role,
+    SabotageFixStation, SabotageKind, TaskBoard, TaskKind, TaskStation,
 };
 use crate::app::{AppState, Paused};
 use game_utils_bevy::transitions::Transition;
@@ -25,8 +25,6 @@ impl Plugin for InteractionPlugin {
     }
 }
 
-/// Reactor is a simultaneous dual-hold: both consoles must be held in the same
-/// frame by two distinct living crewmates. A single player cannot clear it.
 fn reactor_fix_global(
     dt: f32,
     config: &MatchConfig,
@@ -86,11 +84,6 @@ fn reactor_fix_global(
     }
 }
 
-/// Progress each active O2/Lights console once per frame while at least one
-/// living crewmate is holding near it — extra holders never speed it up.
-///
-/// One player may legitimately run both O2 consoles (serially); ghosts cannot
-/// fix sabotages.
 fn progress_fix_stations_once(
     dt: f32,
     config: &MatchConfig,
@@ -128,76 +121,6 @@ fn progress_fix_stations_once(
     }
 }
 
-/// Progress every incomplete task once per frame when at least one eligible
-/// worker (living or crewmate-ghost) holds near it.
-fn progress_tasks_once(
-    dt: f32,
-    config: &MatchConfig,
-    commands: &mut Commands,
-    task_board: &mut TaskBoard,
-    living: &Query<(&Player, &Role, &PlayerIntent, &Transform), With<Alive>>,
-    ghosts: &Query<(&Player, &Role, &PlayerIntent, &Transform), (With<Ghost>, Without<Alive>)>,
-    task_stations: &mut Query<
-        (Entity, &mut TaskStation, &mut Sprite, &Transform),
-        Without<SabotageFixStation>,
-    >,
-) {
-    let mut completed_positions = Vec::new();
-
-    for (_, mut station, mut sprite, transform) in task_stations.iter_mut() {
-        if station.done {
-            continue;
-        }
-
-        let position = transform.translation.truncate();
-
-        let living_worker = living.iter().any(|(_, role, intent, player_transform)| {
-            matches!(role, Role::Crewmate)
-                && intent.interact
-                && player_transform.translation.truncate().distance(position)
-                    <= config.interact_range
-        });
-
-        let ghost_worker = ghosts.iter().any(|(_, role, intent, player_transform)| {
-            matches!(role, Role::Crewmate)
-                && intent.interact
-                && player_transform.translation.truncate().distance(position)
-                    <= config.interact_range
-        });
-
-        if !living_worker && !ghost_worker {
-            continue;
-        }
-
-        station.progress += dt / config.task_hold_time.max(0.1);
-
-        if station.progress < 1.0 {
-            continue;
-        }
-
-        station.progress = 1.0;
-        station.done = true;
-        sprite.color = Color::srgba(0.55, 0.55, 0.55, 0.85);
-
-        // Never count past the win threshold (extra stations / double-complete).
-        if task_board.completed < task_board.total {
-            task_board.completed = task_board.completed.saturating_add(1);
-        }
-
-        completed_positions.push(position);
-    }
-
-    for position in completed_positions {
-        VfxSpawner::spawn_burst(
-            commands,
-            position,
-            10,
-            Color::srgb(0.4, 0.9, 0.5),
-            (30.0, 80.0),
-        );
-    }
-}
-
 fn process_interactions(
     time: Res<Time>,
     config: Res<MatchConfig>,
@@ -205,15 +128,16 @@ fn process_interactions(
     mut sabotage: ResMut<ActiveSabotage>,
     mut task_board: ResMut<TaskBoard>,
     living: Query<(&Player, &Role, &PlayerIntent, &Transform), With<Alive>>,
-    ghosts: Query<(&Player, &Role, &PlayerIntent, &Transform), (With<Ghost>, Without<Alive>)>,
+    mut players_with_tasks: Query<
+        (&Player, &Role, &PlayerIntent, &Transform, &mut PlayerTasks),
+        Or<(With<Alive>, With<Ghost>)>,
+    >,
+    solids: Query<(&Transform, &super::SolidAabb), Without<Player>>,
     mut fix_stations: Query<
         (Entity, &mut SabotageFixStation, &mut Sprite, &Transform),
         Without<TaskStation>,
     >,
-    mut task_stations: Query<
-        (Entity, &mut TaskStation, &mut Sprite, &Transform),
-        Without<SabotageFixStation>,
-    >,
+    task_stations: Query<(Entity, &Transform, &TaskStation), Without<SabotageFixStation>>,
 ) {
     let dt = time.delta_secs();
 
@@ -227,8 +151,6 @@ fn process_interactions(
             }
         }
 
-        // Recount completed stations instead of incrementing on complete:
-        // survives partial re-entry / frame glitches without double-counting.
         let done = fix_stations
             .iter()
             .filter(|(_, s, _, _)| s.kind == active_kind && s.progress >= 1.0)
@@ -236,14 +158,89 @@ fn process_interactions(
         sabotage.fixes_done = done.min(sabotage.fixes_needed as usize) as u8;
     }
 
-    // Ghosts keep completing tasks (Among Us style); crewmate ghosts only.
-    progress_tasks_once(
-        dt,
-        &config,
-        &mut commands,
-        &mut task_board,
-        &living,
-        &ghosts,
-        &mut task_stations,
-    );
+    let solid_boxes = solids
+        .iter()
+        .map(|(t, s)| (t.translation.truncate(), s.half_extents))
+        .collect::<Vec<_>>();
+
+    // Per-player task progression: only closest assigned station.
+    let mut completed_positions = Vec::new();
+    for (_player, role, intent, transform, mut player_tasks) in &mut players_with_tasks {
+        if !matches!(role, Role::Crewmate) {
+            continue;
+        }
+        let player_position = transform.translation.truncate();
+
+        let target_station = task_stations
+            .iter()
+            .filter(|(_, _, station)| {
+                player_tasks
+                    .items
+                    .iter()
+                    .any(|task| task.station_id == station.id && !task.done)
+            })
+            .filter_map(|(entity, trans, station)| {
+                let station_pos = trans.translation.truncate();
+                let distance = player_position.distance(station_pos);
+                if distance > config.interact_range {
+                    return None;
+                }
+                // LOS validation: don't allow through walls.
+                if !crate::game::collision::segment_clear(
+                    player_position,
+                    station_pos,
+                    &solid_boxes,
+                    2.0,
+                ) {
+                    return None;
+                }
+                Some((entity, distance, station))
+            })
+            .min_by(|left, right| {
+                left.1
+                    .partial_cmp(&right.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+        if let Some((_, _, station)) = target_station {
+            if let Some(task) = player_tasks.get_mut(station.id) {
+                if intent.interact {
+                    let duration = match station.kind {
+                        TaskKind::ShortHold => config.task_hold_time,
+                        TaskKind::LongHold => config.task_hold_time * 1.8,
+                        TaskKind::TwoStage => config.task_hold_time * 1.25,
+                    };
+
+                    task.progress =
+                        (task.progress + time.delta_secs() / duration.max(0.1)).min(1.0);
+
+                    if task.progress >= 1.0 && !task.done {
+                        if matches!(station.kind, TaskKind::TwoStage) && task.stage == 0 {
+                            task.stage = 1;
+                            task.progress = 0.0;
+                        } else {
+                            task.done = true;
+                            task_board.completed = task_board.completed.saturating_add(1);
+                            completed_positions.push(player_position);
+                        }
+                    }
+                } else {
+                    task.progress = (task.progress - time.delta_secs() * 0.35).max(0.0);
+                }
+            }
+        } else {
+            // No target in range: decay all incomplete task progress slightly? Only decay active if previously progressing - simplified to no decay.
+            // To match spec, decay only when interacting elsewhere? We'll decay if interact false? Spec decays when not interacting after targeting; but if no target, nothing.
+        }
+    }
+
+    for position in completed_positions {
+        VfxSpawner::spawn_burst(
+            &mut commands,
+            position,
+            10,
+            Color::srgb(0.4, 0.9, 0.5),
+            (30.0, 80.0),
+        );
+    }
 }

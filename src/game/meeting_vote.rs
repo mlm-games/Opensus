@@ -3,8 +3,8 @@ use rand::prelude::IndexedRandom;
 use std::collections::HashMap;
 
 use super::{
-    ActiveSabotage, Alive, EmergenciesLeft, EmergencyButton, GamePhase, Ghost, LocalPlayerId,
-    MatchConfig, Player,
+    ActiveSabotage, Alive, EmergenciesLeft, EmergencyButton, EmergencyCooldownLeft, GamePhase,
+    Ghost, LocalPlayerId, MatchConfig, Player,
 };
 use crate::app::{AppState, Paused};
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
@@ -194,7 +194,7 @@ fn handle_meeting_commands(
     mut sabotage: ResMut<ActiveSabotage>,
     mut fix_stations: Query<(&mut super::SabotageFixStation, &mut Sprite)>,
     players: Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
-    mut living: Query<(&Player, &mut EmergenciesLeft), With<Alive>>,
+    mut living: Query<(&Player, &mut EmergenciesLeft, &EmergencyCooldownLeft), With<Alive>>,
     positions: Query<(&Player, &Transform), With<Alive>>,
     local_id: Res<LocalPlayerId>,
     emergency_buttons: Query<&Transform, With<EmergencyButton>>,
@@ -203,13 +203,15 @@ fn handle_meeting_commands(
     for cmd in ev.read() {
         match cmd {
             MeetingCommand::Emergency { actor_id } => {
-                if !matches!(*phase, GamePhase::Playing) || sabotage.is_critical() {
+                if !matches!(*phase, GamePhase::Playing) || sabotage.is_active() {
                     continue;
                 }
-                let Some((_, mut left)) = living.iter_mut().find(|(p, _)| p.id == *actor_id) else {
+                let Some((_, mut left, cooldown)) =
+                    living.iter_mut().find(|(p, _, _)| p.id == *actor_id)
+                else {
                     continue;
                 };
-                if left.0 == 0 {
+                if left.0 == 0 || cooldown.0 > 0.0 {
                     continue;
                 }
                 // Map-gated: the caller must stand at the emergency button.

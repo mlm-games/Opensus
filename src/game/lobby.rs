@@ -101,10 +101,12 @@ fn handle_start_match(
         if !lobby.is_host || !lobby.local_ready {
             continue;
         }
-        let minimum_players = (cfg.impostor_count as usize)
-            .saturating_mul(2)
-            .saturating_add(1)
-            .max(3);
+        let minimum_players = match cfg.impostor_count {
+            0 => 1,
+            1 => 4,
+            2 => 7,
+            _ => 9,
+        };
         if lobby.slots.len() < minimum_players {
             continue;
         }

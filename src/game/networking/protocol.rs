@@ -4,6 +4,25 @@ use crate::game::{GamePhase, Role, SabotageKind};
 
 pub const PROTOCOL_VERSION: u32 = 6;
 pub const PROTOCOL_ID: u64 = 0x4F50_454E_5355_5301;
+pub const GAMEPLAY_PROTOCOL_VERSION: u16 = 2;
+pub const MAP_REVISION: u32 = 2;
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct MapIdentity {
+    pub map_id: String,
+    pub revision: u32,
+    pub layout_hash: u64,
+}
+
+impl Default for MapIdentity {
+    fn default() -> Self {
+        Self {
+            map_id: "opensus-ship-01".to_string(),
+            revision: MAP_REVISION,
+            layout_hash: 0,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct NetInputCommand {

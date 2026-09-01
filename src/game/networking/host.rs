@@ -654,8 +654,8 @@ pub fn host_send_world_snapshots(
         .iter()
         .map(|station| NetTaskState {
             id: station.id,
-            progress: station.progress,
-            done: station.done,
+            progress: 0.0,
+            done: false,
         })
         .collect::<Vec<_>>();
 

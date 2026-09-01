@@ -26,6 +26,9 @@ pub struct KillCooldownLeft(pub f32);
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct EmergenciesLeft(pub u8);
 
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct EmergencyCooldownLeft(pub f32);
+
 /// Which dual-fix station this living player held on the previous reactor
 /// pulse. Tracks the Second Reactor rule (progress needs two simultaneous
 /// consoles), and is stripped when the player becomes a ghost.
@@ -55,6 +58,7 @@ pub fn make_ghost(
         .remove::<Alive>()
         .remove::<KillCooldownLeft>()
         .remove::<EmergenciesLeft>()
+        .remove::<EmergencyCooldownLeft>()
         .remove::<SabotageFixContribution>()
         .insert(Ghost)
         // Zero intent so a corpse can't "hold E" from its last living frame
