@@ -123,25 +123,24 @@ impl Default for MatchConfig {
             role_reveal_time: 3.0,
 
             tasks_per_crewmate: 3,
-            tasks_to_win: 4,
+            tasks_to_win: 3,
             task_hold_time: 1.65,
 
-            interact_range: 58.0,
-            report_range: 96.0,
-
-            sabotage_cooldown: 25.0,
+            interact_range: 42.0,
+            report_range: 52.0,
+            sabotage_cooldown: 20.0,
             oxygen_time: 30.0,
-            reactor_time: 35.0,
-            sabotage_fix_time: 1.25,
+            reactor_time: 45.0,
+            sabotage_fix_time: 2.5,
             reactor_sync_window: 0.75,
 
-            player_speed: 185.0,
-            ghost_speed_mul: 1.15,
+            player_speed: 220.0,
+            ghost_speed_mul: 1.18,
             camera_follow_sharpness: 9.0,
 
-            bot_count: 7,
+            bot_count: 3,
             bot_task_weight: 0.65,
-            bot_report_range: 96.0,
+            bot_report_range: 70.0,
             bot_kill_aggression: 0.55,
         }
     }
