@@ -11,8 +11,8 @@
 #[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
 pub mod channels;
 
-#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
 pub mod protocol;
+pub use protocol::*;
 
 #[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
 mod bootstrap;

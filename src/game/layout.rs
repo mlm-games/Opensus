@@ -358,6 +358,7 @@ pub const ROOMS: [RoomSpec; 7] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::{GAMEPLAY_PROTOCOL_VERSION, MAP_REVISION};
 
     #[test]
     fn only_one_map_bounds_owner_exists_by_design() {
@@ -493,10 +494,7 @@ mod tests {
 
     #[test]
     fn map_revision_is_two() {
-        assert_eq!(crate::game::networking::protocol::MAP_REVISION, 2);
-        assert_eq!(
-            crate::game::networking::protocol::GAMEPLAY_PROTOCOL_VERSION,
-            2
-        );
+        assert_eq!(MAP_REVISION, 2);
+        assert_eq!(GAMEPLAY_PROTOCOL_VERSION, 2);
     }
 }

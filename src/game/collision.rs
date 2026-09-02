@@ -332,7 +332,7 @@ mod tests {
         let walls = [(Vec2::ZERO, Vec2::new(100.0, 100.0))];
 
         let result =
-            step_player_position(Vec2::new(-150.0, 0.0), Vec2::X, 1_000.0, 1.0, false, &walls);
+            step_player_position(Vec2::new(-150.0, 0.0), Vec2::X, 10_000.0, 1.0, false, &walls);
 
         assert_eq!(result.x, MAP_BOUNDS.x);
     }
