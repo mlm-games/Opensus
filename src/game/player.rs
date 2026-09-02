@@ -5,7 +5,8 @@ use super::{
     ActiveSabotage, Alive, Body, CHARACTER_HEIGHT, EmergenciesLeft, EmergencyButton,
     EmergencyCooldownLeft, GameAssets, GamePhase, Ghost, KillCooldownLeft, KillRequest, LocalRole,
     MAP_BOUNDS, MatchCleanup, MatchConfig, MatchStats, PlayerLayer, ReportBody, Role,
-    SabotageFixContribution, SabotageFixStation, TaskStation, assign_tasks, bake_body_tint,
+    SabotageFixContribution, SabotageFixStation, TaskAssignments, TaskBoard, TaskStation,
+    bake_body_tint, deterministic_task_ids,
 };
 use crate::app::{AppState, Paused};
 use crate::game::RuntimeMode;
@@ -172,12 +173,9 @@ fn spawn_players_from_lobby(
     stats.players_spawned = slots.len() as u32;
     stats.impostors_spawned = impostor_ids.len() as u32;
 
-    let crewmate_count = slots
-        .iter()
-        .filter(|slot| !impostor_ids.contains(&slot.id))
-        .count() as u32;
     task_board.completed = 0;
-    task_board.total = crewmate_count.saturating_mul(cfg.tasks_per_crewmate as u32);
+    task_board.total = 0;
+    let tasks_per_player = cfg.tasks_per_crewmate as usize;
 
     for (i, slot) in slots.iter().enumerate() {
         let role = if impostor_ids.contains(&slot.id) {
@@ -191,6 +189,11 @@ fn spawn_players_from_lobby(
         }
         let color = PLAYER_COLORS[slot.color_index as usize % PLAYER_COLORS.len()];
         let pos = super::PLAYER_SPAWNS[i % super::PLAYER_SPAWNS.len()];
+
+        let assigned_tasks = deterministic_task_ids(slot.id, i, tasks_per_player);
+        if matches!(role, Role::Crewmate) {
+            task_board.total = task_board.total.saturating_add(assigned_tasks.len() as u32);
+        }
 
         let body_handle = bake_body_tint(&mut images, &assets.body_for(slot.color_index), color)
             .unwrap_or_else(|| assets.body_for(slot.color_index));
@@ -207,6 +210,7 @@ fn spawn_players_from_lobby(
             role,
             Alive,
             PlayerIntent::default(),
+            TaskAssignments::new(assigned_tasks),
             PlayerAnimation::default(),
             EmergenciesLeft(cfg.emergency_meetings),
             EmergencyCooldownLeft(cfg.emergency_cooldown),
@@ -220,11 +224,7 @@ fn spawn_players_from_lobby(
         ));
 
         if matches!(role, Role::Impostor) {
-            e.insert(KillCooldownLeft(cfg.kill_cooldown));
-        }
-
-        if matches!(role, Role::Crewmate) {
-            e.insert(assign_tasks(slot.id, cfg.tasks_per_crewmate as usize));
+            e.insert(KillCooldownLeft(cfg.initial_kill_cooldown));
         }
 
         e.with_children(|c| {
@@ -450,6 +450,7 @@ fn ai_brain(
             Entity,
             &Player,
             &Role,
+            &TaskAssignments,
             &mut AiPlayer,
             &mut PlayerIntent,
             &Transform,
@@ -459,7 +460,8 @@ fn ai_brain(
     >,
 ) {
     if !matches!(*phase, GamePhase::Playing) {
-        for (_, _, _, _, mut intent, _, _) in &mut ais {
+        for (_, _, _, _, mut ai, mut intent, _, _) in &mut ais {
+            let _ = ai;
             intent.movement = Vec2::ZERO;
             intent.interact = false;
         }
@@ -471,7 +473,7 @@ fn ai_brain(
         .map(|(t, s)| (t.translation.truncate(), s.half_extents))
         .collect();
 
-    for (_e, player, role, mut ai, mut intent, tf, kill_cd) in &mut ais {
+    for (_e, player, role, tasks_for_player, mut ai, mut intent, tf, kill_cd) in &mut ais {
         ai.repath.tick(time.delta());
         ai.action.tick(time.delta());
         let pos = tf.translation.truncate();
@@ -551,9 +553,14 @@ fn ai_brain(
         if ai.repath.just_finished() || ai.target_task.is_none() {
             let mut best: Option<(Entity, f32)> = None;
             for (te, tt, st) in &tasks {
-                if matches!(role, Role::Impostor) && rand::random::<f32>() > 0.15 {
+                if !tasks_for_player.has(st.id) || tasks_for_player.is_done(st.id) {
                     continue;
                 }
+
+                if matches!(role, Role::Impostor) && rand::random::<f32>() > 0.35 {
+                    continue;
+                }
+
                 let d = pos.distance(tt.translation.truncate());
                 if best.is_none_or(|(_, bd)| d < bd) {
                     best = Some((te, d));
@@ -567,7 +574,13 @@ fn ai_brain(
         }
 
         if let Some(tid) = ai.target_task {
-            if let Ok((_, tt, _)) = tasks.get(tid) {
+            if let Ok((_, tt, st)) = tasks.get(tid) {
+                if !tasks_for_player.has(st.id) || tasks_for_player.is_done(st.id) {
+                    ai.target_task = None;
+                    intent.interact = false;
+                    intent.movement = ai.dir;
+                    continue;
+                }
                 let target = tt.translation.truncate();
                 let dist = pos.distance(target);
                 if dist <= cfg.interact_range * 0.85 {
@@ -595,19 +608,26 @@ fn ai_ghost_brain(
     phase: Res<GamePhase>,
     tasks: Query<(Entity, &Transform, &TaskStation)>,
     mut ais: Query<
-        (&Role, &mut AiPlayer, &mut PlayerIntent, &Transform),
+        (
+            &Role,
+            &TaskAssignments,
+            &mut AiPlayer,
+            &mut PlayerIntent,
+            &Transform,
+        ),
         (With<Ghost>, With<AiPlayer>, Without<Alive>),
     >,
 ) {
     if !matches!(*phase, GamePhase::Playing) {
-        for (_, _, mut intent, _) in &mut ais {
+        for (_, _, mut ai, mut intent, _) in &mut ais {
+            let _ = ai;
             intent.movement = Vec2::ZERO;
             intent.interact = false;
         }
         return;
     }
 
-    for (role, mut ai, mut intent, tf) in &mut ais {
+    for (role, tasks_for_player, mut ai, mut intent, tf) in &mut ais {
         if !matches!(role, Role::Crewmate) {
             intent.movement = Vec2::ZERO;
             intent.interact = false;
@@ -619,7 +639,11 @@ fn ai_ghost_brain(
 
         if ai.repath.just_finished() || ai.target_task.is_none() {
             let mut best: Option<(Entity, f32)> = None;
-            for (te, tt, _st) in &tasks {
+            for (te, tt, st) in &tasks {
+                if !tasks_for_player.has(st.id) || tasks_for_player.is_done(st.id) {
+                    continue;
+                }
+
                 let d = pos.distance(tt.translation.truncate());
                 if best.is_none_or(|(_, bd)| d < bd) {
                     best = Some((te, d));
@@ -633,7 +657,13 @@ fn ai_ghost_brain(
         }
 
         if let Some(tid) = ai.target_task {
-            if let Ok((_, tt, _st)) = tasks.get(tid) {
+            if let Ok((_, tt, st)) = tasks.get(tid) {
+                if !tasks_for_player.has(st.id) || tasks_for_player.is_done(st.id) {
+                    ai.target_task = None;
+                    intent.interact = false;
+                    intent.movement = ai.dir;
+                    continue;
+                }
                 let delta = tt.translation.truncate() - pos;
                 let dist = delta.length();
                 if dist <= cfg.interact_range * 0.85 {
@@ -659,20 +689,34 @@ fn update_local_prompt(
     cfg: Res<MatchConfig>,
     phase: Res<GamePhase>,
     sabotage: Res<ActiveSabotage>,
-    local: Query<(&Transform, Option<&Alive>), With<LocalPlayer>>,
+    local: Query<
+        (
+            &Player,
+            &Transform,
+            Option<&Alive>,
+            Option<&Role>,
+            Option<&KillCooldownLeft>,
+            Option<&TaskAssignments>,
+        ),
+        With<LocalPlayer>,
+    >,
     bodies: Query<(&Transform, &Body)>,
     tasks: Query<(&Transform, &TaskStation)>,
     buttons: Query<&Transform, (With<EmergencyButton>, Without<Player>)>,
     fix: Query<(&Transform, &SabotageFixStation)>,
+    targets: Query<(&Player, &Transform, &Role), (With<Alive>, Without<LocalPlayer>)>,
     mut prompt: ResMut<LocalPrompt>,
 ) {
     prompt.0.clear();
+
     if !matches!(*phase, GamePhase::Playing) {
         return;
     }
-    let Ok((tf, alive)) = local.single() else {
+
+    let Ok((me, tf, alive, role, kill_cd, assignments)) = local.single() else {
         return;
     };
+
     let pos = tf.translation.truncate();
 
     if alive.is_some() {
@@ -682,6 +726,32 @@ fn update_local_prompt(
             prompt.0 = "R - Report body".into();
             return;
         }
+
+        if matches!(role, Some(Role::Impostor)) {
+            let cd = kill_cd.map(|c| c.0).unwrap_or(0.0);
+            if cd <= 0.0 {
+                let mut best: Option<(&str, f32)> = None;
+
+                for (target, target_tf, target_role) in &targets {
+                    if target.id == me.id || matches!(target_role, Role::Impostor) {
+                        continue;
+                    }
+
+                    let d = pos.distance(target_tf.translation.truncate());
+                    if d <= cfg.kill_range && best.is_none_or(|(_, bd)| d < bd) {
+                        best = Some((target.name.as_str(), d));
+                    }
+                }
+
+                if let Some((name, _)) = best {
+                    prompt.0 = format!("Q - Kill {name}");
+                    return;
+                }
+            } else {
+                prompt.0 = format!("Kill cooldown: {:.0}s", cd);
+            }
+        }
+
         if let Some(kind) = sabotage.kind
             && fix.iter().any(|(ft, s)| {
                 s.kind == kind
@@ -689,9 +759,10 @@ fn update_local_prompt(
                     && pos.distance(ft.translation.truncate()) <= cfg.interact_range
             })
         {
-            prompt.0 = "E - Hold to fix".into();
+            prompt.0 = "E - Hold to fix sabotage".into();
             return;
         }
+
         if buttons
             .iter()
             .any(|bt| pos.distance(bt.translation.truncate()) <= cfg.interact_range)
@@ -700,11 +771,17 @@ fn update_local_prompt(
             return;
         }
     }
-    if tasks
-        .iter()
-        .any(|(tt, _)| pos.distance(tt.translation.truncate()) <= cfg.interact_range)
-    {
-        prompt.0 = "E - Hold to work".into();
+
+    let Some(assignments) = assignments else {
+        return;
+    };
+
+    if tasks.iter().any(|(tt, station)| {
+        assignments.has(station.id)
+            && !assignments.is_done(station.id)
+            && pos.distance(tt.translation.truncate()) <= cfg.interact_range
+    }) {
+        prompt.0 = "E - Hold to complete task".into();
     }
 }
 

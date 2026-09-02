@@ -420,7 +420,7 @@ fn sync_shared_game(
         ui.tasks_done = tb.completed;
         ui.tasks_total = tb.total;
     } else if let Some(cfg) = match_cfg {
-        ui.tasks_total = cfg.tasks_to_win;
+        ui.tasks_total = cfg.tasks_per_crewmate;
     }
     let (kill_cd, em) = local_comps
         .single()

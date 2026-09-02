@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 
 use super::{
-    ActiveSabotage, Alive, GamePhase, Ghost, MatchConfig, Player, PlayerIntent, PlayerTasks, Role,
-    SabotageFixStation, SabotageKind, TaskBoard, TaskKind, TaskStation,
+    ActiveSabotage, Alive, GamePhase, Ghost, MatchConfig, Player, PlayerIntent, Role,
+    SabotageFixStation, SabotageKind, TaskAssignments, TaskBoard, TaskStation,
 };
 use crate::app::{AppState, Paused};
 use game_utils_bevy::transitions::Transition;
@@ -121,6 +121,84 @@ fn progress_fix_stations_once(
     }
 }
 
+fn progress_tasks_once(
+    dt: f32,
+    config: &MatchConfig,
+    commands: &mut Commands,
+    task_board: &mut TaskBoard,
+    workers: &mut Query<
+        (
+            &Player,
+            &Role,
+            &PlayerIntent,
+            &Transform,
+            &mut TaskAssignments,
+        ),
+        Or<(With<Alive>, With<Ghost>)>,
+    >,
+    task_stations: &Query<(&TaskStation, &Transform), Without<SabotageFixStation>>,
+) {
+    let station_positions: Vec<(u32, Vec2)> = task_stations
+        .iter()
+        .map(|(station, transform)| (station.id, transform.translation.truncate()))
+        .collect();
+
+    let mut completed_positions = Vec::new();
+
+    for (_player, role, intent, transform, mut assignments) in workers.iter_mut() {
+        if !matches!(role, Role::Crewmate) || !intent.interact {
+            assignments.clear_hold();
+            continue;
+        }
+
+        let pos = transform.translation.truncate();
+
+        let nearest = station_positions
+            .iter()
+            .copied()
+            .filter(|(id, station_pos)| {
+                assignments.has(*id)
+                    && !assignments.is_done(*id)
+                    && pos.distance(*station_pos) <= config.interact_range
+            })
+            .min_by(|a, b| {
+                pos.distance(a.1)
+                    .partial_cmp(&pos.distance(b.1))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+        let Some((task_id, station_pos)) = nearest else {
+            assignments.clear_hold();
+            continue;
+        };
+
+        assignments.reset_hold_if_not(task_id);
+        assignments.active_progress += dt / config.task_hold_time.max(0.1);
+
+        if assignments.active_progress < 1.0 {
+            continue;
+        }
+
+        if assignments.complete_active().is_some() {
+            if task_board.completed < task_board.total {
+                task_board.completed = task_board.completed.saturating_add(1);
+            }
+
+            completed_positions.push(station_pos);
+        }
+    }
+
+    for position in completed_positions {
+        VfxSpawner::spawn_burst(
+            commands,
+            position,
+            10,
+            Color::srgb(0.4, 0.9, 0.5),
+            (30.0, 80.0),
+        );
+    }
+}
+
 fn process_interactions(
     time: Res<Time>,
     config: Res<MatchConfig>,
@@ -128,16 +206,21 @@ fn process_interactions(
     mut sabotage: ResMut<ActiveSabotage>,
     mut task_board: ResMut<TaskBoard>,
     living: Query<(&Player, &Role, &PlayerIntent, &Transform), With<Alive>>,
-    mut players_with_tasks: Query<
-        (&Player, &Role, &PlayerIntent, &Transform, &mut PlayerTasks),
+    mut task_workers: Query<
+        (
+            &Player,
+            &Role,
+            &PlayerIntent,
+            &Transform,
+            &mut TaskAssignments,
+        ),
         Or<(With<Alive>, With<Ghost>)>,
     >,
-    solids: Query<(&Transform, &super::SolidAabb), Without<Player>>,
+    task_stations: Query<(&TaskStation, &Transform), Without<SabotageFixStation>>,
     mut fix_stations: Query<
         (Entity, &mut SabotageFixStation, &mut Sprite, &Transform),
         Without<TaskStation>,
     >,
-    task_stations: Query<(Entity, &Transform, &TaskStation), Without<SabotageFixStation>>,
 ) {
     let dt = time.delta_secs();
 
@@ -158,89 +241,12 @@ fn process_interactions(
         sabotage.fixes_done = done.min(sabotage.fixes_needed as usize) as u8;
     }
 
-    let solid_boxes = solids
-        .iter()
-        .map(|(t, s)| (t.translation.truncate(), s.half_extents))
-        .collect::<Vec<_>>();
-
-    // Per-player task progression: only closest assigned station.
-    let mut completed_positions = Vec::new();
-    for (_player, role, intent, transform, mut player_tasks) in &mut players_with_tasks {
-        if !matches!(role, Role::Crewmate) {
-            continue;
-        }
-        let player_position = transform.translation.truncate();
-
-        let target_station = task_stations
-            .iter()
-            .filter(|(_, _, station)| {
-                player_tasks
-                    .items
-                    .iter()
-                    .any(|task| task.station_id == station.id && !task.done)
-            })
-            .filter_map(|(entity, trans, station)| {
-                let station_pos = trans.translation.truncate();
-                let distance = player_position.distance(station_pos);
-                if distance > config.interact_range {
-                    return None;
-                }
-                // LOS validation: don't allow through walls.
-                if !crate::game::collision::segment_clear(
-                    player_position,
-                    station_pos,
-                    &solid_boxes,
-                    2.0,
-                ) {
-                    return None;
-                }
-                Some((entity, distance, station))
-            })
-            .min_by(|left, right| {
-                left.1
-                    .partial_cmp(&right.1)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-
-        if let Some((_, _, station)) = target_station {
-            if let Some(task) = player_tasks.get_mut(station.id) {
-                if intent.interact {
-                    let duration = match station.kind {
-                        TaskKind::ShortHold => config.task_hold_time,
-                        TaskKind::LongHold => config.task_hold_time * 1.8,
-                        TaskKind::TwoStage => config.task_hold_time * 1.25,
-                    };
-
-                    task.progress =
-                        (task.progress + time.delta_secs() / duration.max(0.1)).min(1.0);
-
-                    if task.progress >= 1.0 && !task.done {
-                        if matches!(station.kind, TaskKind::TwoStage) && task.stage == 0 {
-                            task.stage = 1;
-                            task.progress = 0.0;
-                        } else {
-                            task.done = true;
-                            task_board.completed = task_board.completed.saturating_add(1);
-                            completed_positions.push(player_position);
-                        }
-                    }
-                } else {
-                    task.progress = (task.progress - time.delta_secs() * 0.35).max(0.0);
-                }
-            }
-        } else {
-            // No target in range: decay all incomplete task progress slightly? Only decay active if previously progressing - simplified to no decay.
-            // To match spec, decay only when interacting elsewhere? We'll decay if interact false? Spec decays when not interacting after targeting; but if no target, nothing.
-        }
-    }
-
-    for position in completed_positions {
-        VfxSpawner::spawn_burst(
-            &mut commands,
-            position,
-            10,
-            Color::srgb(0.4, 0.9, 0.5),
-            (30.0, 80.0),
-        );
-    }
+    progress_tasks_once(
+        dt,
+        &config,
+        &mut commands,
+        &mut task_board,
+        &mut task_workers,
+        &task_stations,
+    );
 }

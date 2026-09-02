@@ -58,16 +58,18 @@ pub struct MatchConfig {
     pub emergency_cooldown: f32,
 
     pub kill_cooldown: f32,
+    pub initial_kill_cooldown: f32,
     pub kill_range: f32,
 
     pub discussion_time: f32,
     pub voting_time: f32,
     pub results_time: f32,
+    pub confirm_ejects: bool,
 
     pub role_reveal_time: f32,
 
+    pub tasks_per_crewmate: u32,
     pub tasks_to_win: u32,
-    pub tasks_per_crewmate: u8,
     pub task_hold_time: f32,
 
     pub interact_range: f32,
@@ -109,17 +111,20 @@ impl Default for MatchConfig {
             emergency_meetings: 1,
             emergency_cooldown: 15.0,
 
-            kill_cooldown: 25.0,
-            kill_range: 68.0,
+            kill_cooldown: 22.5,
+            initial_kill_cooldown: 10.0,
+            kill_range: 42.0,
 
-            discussion_time: 30.0,
-            voting_time: 75.0,
-            results_time: 4.5,
-            role_reveal_time: 2.8,
+            discussion_time: 18.0,
+            voting_time: 22.0,
+            results_time: 4.0,
+            confirm_ejects: false,
 
+            role_reveal_time: 3.0,
+
+            tasks_per_crewmate: 3,
             tasks_to_win: 4,
-            tasks_per_crewmate: 4,
-            task_hold_time: 1.35,
+            task_hold_time: 1.65,
 
             interact_range: 58.0,
             report_range: 96.0,

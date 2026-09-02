@@ -186,6 +186,9 @@ fn do_kill(
         let children = kill_queries.targets.get(victim).ok().and_then(|t| t.4);
         make_ghost(&mut commands, victim, children, &mut sprites, &mut texts);
 
+        let shove = (pos - actor_position).normalize_or_zero() * 8.0;
+        let body_pos = pos + shove + Vec2::new(0.0, -10.0);
+
         commands.spawn((
             MatchCleanup,
             Body {
@@ -199,7 +202,7 @@ fn do_kill(
                 custom_size: Some(Vec2::new(CHARACTER_HEIGHT * 0.7, CHARACTER_HEIGHT * 0.35)),
                 ..default()
             },
-            Transform::from_xyz(pos.x, pos.y - 10.0, 3.0)
+            Transform::from_xyz(body_pos.x, body_pos.y, 3.0)
                 .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)),
         ));
         ScreenEffects::add_trauma(&mut trauma, 0.55);

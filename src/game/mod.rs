@@ -13,6 +13,7 @@ mod navigation;
 mod networking;
 mod phases;
 mod player;
+mod polish;
 mod roles;
 mod sabotage;
 mod tasks;
@@ -33,6 +34,7 @@ pub use meeting_vote::*;
 pub use networking::*;
 pub use phases::*;
 pub use player::*;
+pub use polish::*;
 pub use roles::*;
 pub use sabotage::*;
 pub use tasks::*;
@@ -98,6 +100,7 @@ impl Plugin for GamePlugin {
                 SabotagePlugin,
                 VisionPlugin,
                 VentsPlugin,
+                PolishPlugin,
                 NetworkingPlugin,
                 ChatPlugin,
                 GameAudioPlugin,
@@ -257,6 +260,7 @@ fn tick_phase_timers(
     stats: Res<MatchStats>,
     mut save: ResMut<crate::save::SaveData>,
     manager: Res<game_utils_bevy::save::SaveManager>,
+    mut kill_cooldowns: Query<&mut KillCooldownLeft>,
 ) {
     // Never advance meeting timers after the match is decided.
     if matches!(*phase, GamePhase::GameOver { .. } | GamePhase::None) {
@@ -293,6 +297,9 @@ fn tick_phase_timers(
                 if let Some(reason) = compute_win(&tasks, &players, &stats) {
                     apply_game_over(&mut phase, reason, &mut save, &manager);
                 } else {
+                    for mut cd in &mut kill_cooldowns {
+                        cd.0 = cfg.kill_cooldown;
+                    }
                     *phase = GamePhase::Playing;
                 }
                 meeting.clear_for_play();
@@ -309,6 +316,7 @@ fn apply_pending_eject(
     mut sprites: Query<&mut Sprite>,
     mut texts: Query<&mut TextColor>,
     mut trauma: ResMut<Trauma>,
+    cfg: Res<MatchConfig>,
 ) {
     // Only consume eject once we've entered Results.
     if !matches!(*phase, GamePhase::Results) {
@@ -324,10 +332,14 @@ fn apply_pending_eject(
         }
         make_ghost(&mut commands, e, children, &mut sprites, &mut texts);
         ScreenEffects::add_trauma(&mut trauma, 0.5);
-        meeting.result_text = if matches!(role, Role::Impostor) {
-            format!("{} was an Impostor.", p.name)
+        meeting.result_text = if cfg.confirm_ejects {
+            if matches!(role, Role::Impostor) {
+                format!("{} was an Impostor.", p.name)
+            } else {
+                format!("{} was not an Impostor.", p.name)
+            }
         } else {
-            format!("{} was not an Impostor.", p.name)
+            format!("{} was ejected.", p.name)
         };
         break;
     }
