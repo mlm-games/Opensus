@@ -232,6 +232,7 @@ impl Plugin for AppPlugin {
                         compose_every_frame: true,
                         msaa_samples: 1,
                         overlay: true,
+                        ..Default::default()
                     },
                     move |_s, rc| {
                         // One-time UI image upload. See SharedUi ui_lab_bg/background.
