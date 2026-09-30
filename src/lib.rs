@@ -1,5 +1,7 @@
-mod app;
-mod save;
+pub mod app;
+pub mod game;
+pub mod save;
+pub mod ui;
 
 pub use app::App;
 

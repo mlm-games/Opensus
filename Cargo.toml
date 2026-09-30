@@ -41,6 +41,7 @@ glam = "0.33"
 repose-core = "0.31"
 repose-ui = "0.31"
 repose-text = "0.31"
+repose-material = "0.31"
 game-utils = "0.4"
 game-utils-repame = "0.4"
 rand = "0.10"
@@ -101,5 +102,6 @@ strip = "debuginfo"
 # repame-shell = { path = "../../Repos/repame/crates/repame-shell" }
 # repame-sim = { path = "../../Repos/repame/crates/repame-sim" }
 # repose-core = { path = "../../Repos/repose/crates/repose-core" }
+# repose-material = { path = "../../Repos/repose/crates/repose-material" }
 # repose-text = { path = "../../Repos/repose/crates/repose-text" }
 # repose-ui = { path = "../../Repos/repose/crates/repose-ui" }
