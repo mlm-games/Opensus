@@ -8,7 +8,11 @@ use repame_fx::{Flash, TransitionFx};
 use repose_core::ImageHandle;
 
 use crate::app::{AppState, LOADING_SECS, LoadingTimer, OverlayMenu, Paused};
-use crate::game::{GamePhase, LobbySlot, LobbyState, Role};
+use crate::game::{
+    ActiveSabotage, Alive, EmergenciesLeft, GamePhase, KillCooldownLeft, LobbySlot, LobbyState,
+    LocalPlayer, LocalPrompt, LocalRole, MatchConfig, MeetingState, Player, Role, RoleRevealTimer,
+    SabotageKind, TaskBoard,
+};
 use crate::save::SaveData;
 use crate::ui::menus::UiAction;
 
@@ -122,7 +126,7 @@ pub fn drain_actions(world: &mut World) -> Vec<UiAction> {
         .unwrap_or_default()
 }
 
-pub fn sync_shared_ui(world: &World, ui: &mut SharedUi) {
+pub fn sync_shared_ui(world: &mut World, ui: &mut SharedUi) {
     ui.phase = *world.resource::<AppState>();
     ui.paused = world.resource::<Paused>().0;
     ui.overlay = *world.resource::<OverlayMenu>();
@@ -157,4 +161,86 @@ pub fn sync_shared_ui(world: &World, ui: &mut SharedUi) {
     ui.lobby_slots = lobby.slots.clone();
     ui.local_ready = lobby.local_ready;
     ui.is_host = lobby.is_host;
+    sync_game_fields(world, ui);
+}
+
+fn sync_game_fields(world: &mut World, ui: &mut SharedUi) {
+    if ui.phase != AppState::InGame {
+        ui.my_role = None;
+        ui.tasks_done = 0;
+        ui.tasks_total = 0;
+        ui.kill_cd = 0.0;
+        ui.emergencies_left = 0;
+        ui.phase_timer = 0.0;
+        ui.meeting_prompt.clear();
+        ui.vote_options.clear();
+        ui.my_voted = false;
+        ui.result_text.clear();
+        ui.vote_tallies.clear();
+        ui.sabotage_kind = None;
+        ui.sabotage_remaining = 0.0;
+        ui.sabotage_cooldown = 0.0;
+        ui.interact_prompt.clear();
+        ui.lights_out = false;
+        ui.local_alive = false;
+        ui.local_player_id = None;
+        return;
+    }
+
+    ui.my_role = world.resource::<LocalRole>().0;
+    {
+        let board = world.resource::<TaskBoard>();
+        ui.tasks_done = board.completed;
+        ui.tasks_total = board.total;
+    }
+    {
+        let meeting = world.resource::<MeetingState>();
+        ui.meeting_prompt = meeting.prompt.clone();
+        ui.vote_options = meeting
+            .options
+            .iter()
+            .map(|option| (option.player_id, option.name.clone(), option.dead))
+            .collect();
+        ui.my_voted = meeting.local_voted;
+        ui.result_text = meeting.result_text.clone();
+        ui.vote_tallies = meeting.tallies.clone();
+        ui.phase_timer = match ui.game_phase {
+            GamePhase::Meeting | GamePhase::Voting | GamePhase::Results => {
+                meeting.timer.remaining_secs()
+            }
+            _ => 0.0,
+        };
+    }
+    if matches!(ui.game_phase, GamePhase::RoleReveal) {
+        ui.phase_timer = world.resource::<RoleRevealTimer>().0.remaining_secs();
+    }
+    ui.interact_prompt = world.resource::<LocalPrompt>().0.clone();
+    {
+        let sabotage = world.resource::<ActiveSabotage>();
+        ui.sabotage_kind = sabotage.kind.map(|kind| match kind {
+            SabotageKind::Lights => "Lights".to_string(),
+            SabotageKind::Oxygen => "Oxygen".to_string(),
+            SabotageKind::Reactor => "Reactor".to_string(),
+        });
+        ui.sabotage_remaining = sabotage.critical_remaining();
+        ui.lights_out = sabotage.kind == Some(SabotageKind::Lights);
+    }
+    ui.sabotage_cooldown = world.resource::<MatchConfig>().sabotage_cooldown;
+    let mut query = world.query_filtered::<(
+        &Player,
+        Option<&KillCooldownLeft>,
+        Option<&EmergenciesLeft>,
+        Option<&Alive>,
+    ), With<LocalPlayer>>();
+    if let Ok((player, kill_cd, emergencies, alive)) = query.single(world) {
+        ui.local_player_id = Some(player.id);
+        ui.kill_cd = kill_cd.map(|cd| cd.0).unwrap_or(0.0);
+        ui.emergencies_left = emergencies.map(|left| left.0 as u32).unwrap_or(0);
+        ui.local_alive = alive.is_some();
+    } else {
+        ui.local_player_id = None;
+        ui.kill_cd = 0.0;
+        ui.emergencies_left = 0;
+        ui.local_alive = false;
+    }
 }

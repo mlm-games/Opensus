@@ -5,11 +5,14 @@ use std::sync::OnceLock;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::Schedule;
 use game_utils_repame::{I18nStrings, SaveResource, register_i18n, register_save};
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use repame_fx::TransitionFx;
 use repame_shell::{
     SharedEdges, Staging, install_game_shortcuts, shared_edges, take_shortcut_edges,
 };
 use repame_sim::Sim;
+use repose_core::input::PhysicalKey;
 use repose_core::prelude::Modifier;
 use repose_core::{FocusRequester, RenderContext, Scheduler, View, remember, request_frame};
 use repose_ui::overlay::OverlayHandle;
@@ -17,8 +20,10 @@ use repose_ui::{ViewExt, ZStack};
 use web_time::{Duration, Instant};
 
 use crate::game::{
-    GamePhase, LobbyState, MatchConfig, MeetingCommand, MeetingCommands, PLAYER_COLORS,
-    PendingNetworkStart, RuntimeMode, handle_start_match, setup_lobby,
+    ActiveSabotage, GameOverSaved, GamePhase, LobbyState, LocalControls, MatchConfig, MatchRng,
+    MatchSeed, MeetingCommand, MeetingCommands, PLAYER_COLORS, PendingNetworkStart, RuntimeMode,
+    TaskBoard, build_game_schedule, enter_ingame, exit_ingame, handle_start_match, input_direction,
+    setup_lobby,
 };
 use crate::save::{SAVE_VERSION, SaveData};
 use crate::ui::{SharedUi, UiAction, UiActions, compose_root, drain_actions, sync_shared_ui};
@@ -128,6 +133,9 @@ pub struct PendingUnpause(pub Option<f32>);
 #[derive(Resource, Default)]
 pub struct InputEdges {
     pub pause: bool,
+    pub kill: bool,
+    pub report: bool,
+    pub emergency: bool,
 }
 
 #[derive(Resource)]
@@ -152,6 +160,9 @@ pub fn goto_state(world: &mut World, next: AppState) {
     if prev == next {
         return;
     }
+    if prev == AppState::InGame {
+        exit_ingame(world);
+    }
     world.insert_resource(next);
     world.insert_resource(Paused::default());
     world.insert_resource(OverlayMenu::None);
@@ -166,7 +177,10 @@ pub fn goto_state(world: &mut World, next: AppState) {
         AppState::Lobby => {
             setup_lobby(world);
         }
-        AppState::Title | AppState::InGame => {}
+        AppState::InGame => {
+            enter_ingame(world);
+        }
+        AppState::Title => {}
     }
 }
 
@@ -241,6 +255,12 @@ fn handle_pause_input(world: &mut World) {
     let paused = world.resource::<Paused>().0;
     match overlay {
         OverlayMenu::None if !paused => {
+            {
+                let mut edges = world.resource_mut::<InputEdges>();
+                edges.kill = false;
+                edges.report = false;
+                edges.emergency = false;
+            }
             world.insert_resource(Paused(true));
             world.insert_resource(OverlayMenu::Pause);
             world.insert_resource(PendingUnpause(None));
@@ -287,6 +307,22 @@ impl App {
         sim.world.init_resource::<LobbyState>();
         sim.world.init_resource::<GamePhase>();
         sim.world.init_resource::<MeetingCommands>();
+        sim.world.init_resource::<TaskBoard>();
+        sim.world.init_resource::<crate::game::LocalRole>();
+        sim.world.init_resource::<crate::game::LocalPlayerId>();
+        sim.world.init_resource::<crate::game::MeetingState>();
+        sim.world.init_resource::<crate::game::MatchStats>();
+        sim.world.init_resource::<crate::game::RoleRevealTimer>();
+        sim.world.init_resource::<ActiveSabotage>();
+        sim.world.init_resource::<crate::game::KillRequests>();
+        sim.world.init_resource::<crate::game::ReportBodies>();
+        sim.world.init_resource::<GameOverSaved>();
+        sim.world.init_resource::<crate::game::LocalPrompt>();
+        sim.world.init_resource::<LocalControls>();
+        let seed = rand::random::<u64>();
+        sim.world.insert_resource(MatchSeed(seed));
+        sim.world
+            .insert_resource(MatchRng(StdRng::seed_from_u64(seed)));
         sim.world.insert_resource(QuitRequested::default());
         sim.world.insert_resource(AppState::Splash);
         sim.world.insert_resource(SplashTimer(SPLASH_SECS));
@@ -296,7 +332,7 @@ impl App {
         sim.world.insert_resource(InputEdges::default());
         Self {
             sim,
-            schedule: Schedule::default(),
+            schedule: build_game_schedule(),
             pending_state: None,
             staging: Staging::shared(),
             shortcut_edges: shared_edges(),
@@ -336,7 +372,19 @@ impl App {
             return 0;
         }
         let schedule = &mut self.schedule;
-        self.sim.step_with(dt, move |world| schedule.run(world))
+        let ran = self.sim.step_with(dt, move |world| schedule.run(world));
+        if matches!(
+            *self.sim.world.resource::<GamePhase>(),
+            GamePhase::GameOver { .. }
+        ) && !self.sim.world.resource::<GameOverSaved>().0
+        {
+            self.sim.world.insert_resource(GameOverSaved(true));
+            let world = &self.sim.world;
+            let _ = world
+                .resource::<SaveResource>()
+                .save_now(world.resource::<SaveData>());
+        }
+        ran
     }
 
     fn feed_polled(&mut self, sched: &Scheduler) {
@@ -344,12 +392,38 @@ impl App {
     }
 
     fn feed_input(&mut self) {
-        self.staging.borrow_mut().take_edges();
+        let key_edges = self.staging.borrow_mut().take_edges();
         let (pause, _, _) = take_shortcut_edges(&self.shortcut_edges);
         let blocked = self.sim.world.resource::<TransitionFx>().blocking();
-        self.sim.world.insert_resource(InputEdges {
-            pause: pause && !blocked,
+        let state = *self.sim.world.resource::<AppState>();
+        let paused = self.sim.world.resource::<Paused>().0;
+        let phase = *self.sim.world.resource::<GamePhase>();
+        let playing =
+            state == AppState::InGame && !paused && !blocked && matches!(phase, GamePhase::Playing);
+        let (direction, interact) = {
+            let staging = self.staging.borrow();
+            let held = |key| staging.held.contains(&key);
+            (
+                input_direction(
+                    held(PhysicalKey::KeyW) || held(PhysicalKey::ArrowUp),
+                    held(PhysicalKey::KeyS) || held(PhysicalKey::ArrowDown),
+                    held(PhysicalKey::KeyA) || held(PhysicalKey::ArrowLeft),
+                    held(PhysicalKey::KeyD) || held(PhysicalKey::ArrowRight),
+                ),
+                held(PhysicalKey::KeyE),
+            )
+        };
+        self.sim.world.insert_resource(LocalControls {
+            direction,
+            interact,
         });
+        let mut edges = self.sim.world.resource_mut::<InputEdges>();
+        edges.pause = pause && !blocked;
+        if playing {
+            edges.kill |= key_edges.contains(&PhysicalKey::KeyQ);
+            edges.report |= key_edges.contains(&PhysicalKey::KeyR);
+            edges.emergency |= key_edges.contains(&PhysicalKey::KeyF);
+        }
     }
 
     fn process_ui_actions(&mut self) {
@@ -590,7 +664,7 @@ impl App {
         {
             std::process::exit(0);
         }
-        sync_shared_ui(&self.sim.world, &mut self.ui);
+        sync_shared_ui(&mut self.sim.world, &mut self.ui);
         let overlay_rc = remember(OverlayHandle::new);
         let overlay = (*overlay_rc).clone();
         let focus = remember(FocusRequester::new);
@@ -741,12 +815,18 @@ mod tests {
     fn escape_pauses_and_unpauses_in_game() {
         let mut app = App::new();
         goto_state(&mut app.sim.world, AppState::InGame);
-        app.sim.world.insert_resource(InputEdges { pause: true });
+        app.sim.world.insert_resource(InputEdges {
+            pause: true,
+            ..Default::default()
+        });
         app.advance(Duration::from_millis(16));
         assert_eq!(*app.sim.world.resource::<OverlayMenu>(), OverlayMenu::Pause);
         assert!(app.sim.world.resource::<Paused>().0);
 
-        app.sim.world.insert_resource(InputEdges { pause: true });
+        app.sim.world.insert_resource(InputEdges {
+            pause: true,
+            ..Default::default()
+        });
         app.advance(Duration::from_millis(16));
         assert_eq!(*app.sim.world.resource::<OverlayMenu>(), OverlayMenu::None);
         assert!(app.sim.world.resource::<Paused>().0);
@@ -760,7 +840,10 @@ mod tests {
     fn pause_edges_gated_by_state_and_transition() {
         let mut app = App::new();
         goto_state(&mut app.sim.world, AppState::Title);
-        app.sim.world.insert_resource(InputEdges { pause: true });
+        app.sim.world.insert_resource(InputEdges {
+            pause: true,
+            ..Default::default()
+        });
         app.advance(Duration::from_millis(16));
         assert!(!app.sim.world.resource::<Paused>().0);
         assert!(!app.sim.world.resource::<InputEdges>().pause);
@@ -770,7 +853,10 @@ mod tests {
         app.shortcut_edges.borrow_mut().pause = true;
         app.feed_input();
         assert!(!app.sim.world.resource::<InputEdges>().pause);
-        app.sim.world.insert_resource(InputEdges { pause: true });
+        app.sim.world.insert_resource(InputEdges {
+            pause: true,
+            ..Default::default()
+        });
         app.advance(Duration::from_millis(16));
         assert!(!app.sim.world.resource::<Paused>().0);
     }
@@ -800,6 +886,15 @@ mod tests {
     fn settle(app: &mut App) {
         for _ in 0..150 {
             app.advance(Duration::from_millis(33));
+        }
+    }
+
+    fn advance_for(app: &mut App, total_ms: u64) {
+        let mut left = total_ms;
+        while left > 0 {
+            let chunk = left.min(100);
+            app.advance(Duration::from_millis(chunk));
+            left -= chunk;
         }
     }
 
@@ -900,7 +995,10 @@ mod tests {
         app.process_ui_actions();
         assert!((app.ui.master_vol - 0.4).abs() < 1e-6);
 
-        app.sim.world.insert_resource(InputEdges { pause: true });
+        app.sim.world.insert_resource(InputEdges {
+            pause: true,
+            ..Default::default()
+        });
         app.advance(Duration::from_millis(16));
         assert_eq!(*app.sim.world.resource::<OverlayMenu>(), OverlayMenu::None);
         assert!(!app.sim.world.resource::<Paused>().0);
@@ -914,7 +1012,10 @@ mod tests {
             OverlayMenu::Settings
         );
 
-        app.sim.world.insert_resource(InputEdges { pause: true });
+        app.sim.world.insert_resource(InputEdges {
+            pause: true,
+            ..Default::default()
+        });
         app.advance(Duration::from_millis(16));
         assert_eq!(*app.sim.world.resource::<OverlayMenu>(), OverlayMenu::Pause);
         assert!(app.sim.world.resource::<Paused>().0);
@@ -988,5 +1089,286 @@ mod tests {
             app.sim.world.resource::<crate::game::LobbyState>().slots[0].color_index,
             after
         );
+    }
+
+    fn local_entity(app: &mut App) -> Entity {
+        let world = &mut app.sim.world;
+        let mut q = world.query_filtered::<Entity, With<crate::game::LocalPlayer>>();
+        q.single(world).unwrap()
+    }
+
+    fn set_local_position(app: &mut App, position: glam::Vec2) {
+        let world = &mut app.sim.world;
+        let mut q =
+            world.query_filtered::<&mut crate::game::Position, With<crate::game::LocalPlayer>>();
+        q.single_mut(world).unwrap().0 = position;
+    }
+
+    #[test]
+    fn match_setup_spawns_fallback_crew() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+
+        let world = &mut app.sim.world;
+        let mut q = world.query::<&crate::game::Role>();
+        let roles: Vec<crate::game::Role> = q.iter(world).copied().collect();
+        assert_eq!(roles.len(), 4);
+        assert_eq!(
+            roles
+                .iter()
+                .filter(|role| matches!(role, crate::game::Role::Impostor))
+                .count(),
+            1
+        );
+        let stats = world.resource::<crate::game::MatchStats>();
+        assert_eq!(stats.players_spawned, 4);
+        assert_eq!(stats.impostors_spawned, 1);
+        let board = world.resource::<TaskBoard>();
+        assert_eq!(board.total, 9);
+        assert_eq!(board.completed, 0);
+        assert!(matches!(
+            *world.resource::<GamePhase>(),
+            GamePhase::RoleReveal
+        ));
+    }
+
+    #[test]
+    fn role_reveal_opens_play() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        advance_for(&mut app, 3100);
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Playing
+        ));
+    }
+
+    #[test]
+    fn emergency_meeting_is_gated_by_button_range() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        advance_for(&mut app, 3100);
+
+        let local = local_entity(&mut app);
+        app.sim
+            .world
+            .entity_mut(local)
+            .insert(crate::game::EmergencyCooldownLeft(0.0));
+        set_local_position(&mut app, glam::Vec2::new(500.0, 500.0));
+
+        app.sim.world.insert_resource(InputEdges {
+            emergency: true,
+            ..Default::default()
+        });
+        app.advance(Duration::from_millis(50));
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Playing
+        ));
+
+        set_local_position(&mut app, crate::game::EMERGENCY_BUTTON_POSITION);
+        app.sim.world.insert_resource(InputEdges {
+            emergency: true,
+            ..Default::default()
+        });
+        app.advance(Duration::from_millis(50));
+
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Meeting
+        ));
+        assert_eq!(
+            app.sim.world.resource::<crate::game::MeetingState>().prompt,
+            "Emergency Meeting!"
+        );
+        let world = &mut app.sim.world;
+        let mut q =
+            world.query_filtered::<&crate::game::EmergenciesLeft, With<crate::game::LocalPlayer>>();
+        assert_eq!(q.single(world).unwrap().0, 0);
+    }
+
+    #[test]
+    fn meeting_resolves_after_local_skip_vote() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        advance_for(&mut app, 3100);
+
+        let local = local_entity(&mut app);
+        app.sim
+            .world
+            .entity_mut(local)
+            .insert(crate::game::EmergencyCooldownLeft(0.0));
+        set_local_position(&mut app, crate::game::EMERGENCY_BUTTON_POSITION);
+        app.sim.world.insert_resource(InputEdges {
+            emergency: true,
+            ..Default::default()
+        });
+        app.advance(Duration::from_millis(50));
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Meeting
+        ));
+
+        let local_id = app
+            .sim
+            .world
+            .resource::<crate::game::LocalPlayerId>()
+            .0
+            .unwrap();
+        {
+            let mut meeting = app.sim.world.resource_mut::<crate::game::MeetingState>();
+            assert_eq!(meeting.options.len(), 4);
+            let bot_ids: Vec<u64> = meeting
+                .options
+                .iter()
+                .map(|option| option.player_id)
+                .filter(|&id| id != local_id)
+                .collect();
+            assert_eq!(bot_ids.len(), 3);
+            for id in bot_ids {
+                meeting.votes.insert(id, None);
+            }
+        }
+
+        advance_for(&mut app, 18100);
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Voting
+        ));
+        assert_eq!(
+            app.sim
+                .world
+                .resource::<crate::game::MeetingState>()
+                .votes
+                .len(),
+            3
+        );
+
+        app.sim
+            .world
+            .resource_mut::<crate::game::MeetingCommands>()
+            .0
+            .push(crate::game::MeetingCommand::Skip { voter_id: local_id });
+        app.advance(Duration::from_millis(50));
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Results
+        ));
+        {
+            let meeting = app.sim.world.resource::<crate::game::MeetingState>();
+            assert_eq!(meeting.tallies, vec![("Skip".to_string(), 4)]);
+            assert_eq!(meeting.result_text, "No one was ejected. (Skip / Tie)");
+        }
+
+        advance_for(&mut app, 4500);
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Playing
+        ));
+        assert!(
+            app.sim
+                .world
+                .resource::<crate::game::MeetingState>()
+                .prompt
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn kill_and_report_open_a_meeting() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        advance_for(&mut app, 3100);
+
+        let local = local_entity(&mut app);
+        let victim_position = {
+            let world = &mut app.sim.world;
+            let mut q = world.query_filtered::<&crate::game::Position, (
+                With<crate::game::Player>,
+                Without<crate::game::LocalPlayer>,
+            )>();
+            q.iter(world).next().unwrap().0
+        };
+        {
+            let world = &mut app.sim.world;
+            let mut q = world.query_filtered::<&mut crate::game::Role, With<crate::game::Alive>>();
+            for mut role in q.iter_mut(world) {
+                *role = crate::game::Role::Crewmate;
+            }
+        }
+        app.sim.world.entity_mut(local).insert((
+            crate::game::Role::Impostor,
+            crate::game::KillCooldownLeft(0.0),
+            crate::game::Position(victim_position + glam::Vec2::new(18.0, 0.0)),
+        ));
+
+        app.sim.world.insert_resource(InputEdges {
+            kill: true,
+            ..Default::default()
+        });
+        app.advance(Duration::from_millis(50));
+
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Playing
+        ));
+        let world = &mut app.sim.world;
+        let mut q = world.query_filtered::<Entity, With<crate::game::Ghost>>();
+        assert_eq!(q.iter(world).count(), 1);
+        let mut q = world.query_filtered::<Entity, With<crate::game::Body>>();
+        assert_eq!(q.iter(world).count(), 1);
+        let mut q = world
+            .query_filtered::<&crate::game::KillCooldownLeft, With<crate::game::LocalPlayer>>();
+        assert!(q.single(world).unwrap().0 > 20.0);
+
+        app.sim.world.insert_resource(InputEdges {
+            report: true,
+            ..Default::default()
+        });
+        app.advance(Duration::from_millis(50));
+
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Meeting
+        ));
+        assert!(
+            app.sim
+                .world
+                .resource::<crate::game::MeetingState>()
+                .prompt
+                .ends_with("body was reported!")
+        );
+    }
+
+    #[test]
+    fn task_bar_completion_ends_match() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        app.sim.world.insert_resource(GameOverSaved(true));
+        advance_for(&mut app, 3100);
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Playing
+        ));
+
+        let before = app.sim.world.resource::<SaveData>().games_played;
+        {
+            let mut board = app.sim.world.resource_mut::<TaskBoard>();
+            board.completed = board.total;
+        }
+        app.advance(Duration::from_millis(50));
+
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::GameOver {
+                crew_win: true,
+                reason: crate::game::WinReason::Tasks
+            }
+        ));
+        assert_eq!(
+            app.sim.world.resource::<SaveData>().games_played,
+            before + 1
+        );
+        assert!(app.sim.world.resource::<GameOverSaved>().0);
     }
 }
