@@ -1,5 +1,6 @@
 pub mod app;
 pub mod assets;
+pub mod audio;
 pub mod game;
 pub mod render;
 pub mod save;

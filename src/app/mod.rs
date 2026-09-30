@@ -20,11 +20,12 @@ use repose_ui::{ViewExt, ZStack};
 use web_time::{Duration, Instant};
 
 use crate::assets::GameImages;
+use crate::audio::GameAudio;
 use crate::game::{
-    ActiveSabotage, GameOverSaved, GamePhase, LobbyState, LocalControls, MatchConfig, MatchRng,
-    MatchSeed, MeetingCommand, MeetingCommands, PLAYER_COLORS, PendingNetworkStart, RuntimeMode,
-    TaskBoard, build_game_schedule, enter_ingame, exit_ingame, handle_start_match, input_direction,
-    setup_lobby,
+    ActiveSabotage, AudioFrameMemory, CriticalAlarmTimer, GameOverSaved, GamePhase, LobbyState,
+    LocalControls, MatchConfig, MatchRng, MatchSeed, MeetingCommand, MeetingCommands,
+    PLAYER_COLORS, PendingCues, PendingNetworkStart, RuntimeMode, TaskBoard, build_game_schedule,
+    enter_ingame, exit_ingame, handle_start_match, input_direction, setup_lobby,
 };
 use crate::render::{RenderState, sync_world_render};
 use crate::save::{SAVE_VERSION, SaveData};
@@ -291,6 +292,7 @@ pub struct App {
     ui: SharedUi,
     render: RenderState,
     images: GameImages,
+    audio: GameAudio,
 }
 
 impl App {
@@ -323,6 +325,9 @@ impl App {
         sim.world.init_resource::<GameOverSaved>();
         sim.world.init_resource::<crate::game::LocalPrompt>();
         sim.world.init_resource::<LocalControls>();
+        sim.world.init_resource::<PendingCues>();
+        sim.world.init_resource::<AudioFrameMemory>();
+        sim.world.init_resource::<CriticalAlarmTimer>();
         let seed = rand::random::<u64>();
         sim.world.insert_resource(MatchSeed(seed));
         sim.world
@@ -343,6 +348,7 @@ impl App {
             ui: SharedUi::default(),
             render: RenderState::default(),
             images: GameImages::default(),
+            audio: GameAudio::new(),
         }
     }
 
@@ -670,6 +676,14 @@ impl App {
         {
             std::process::exit(0);
         }
+        let settings = &self.sim.world.resource::<SaveData>().settings;
+        self.audio.apply_volumes(
+            settings.master_volume,
+            settings.sfx_volume,
+            settings.music_volume,
+        );
+        self.audio.drain(&mut self.sim.world);
+        self.audio.update(dt.as_secs_f32());
         sync_shared_ui(&mut self.sim.world, &mut self.ui);
         if !self.images.is_loaded() {
             self.images = GameImages::load(ctx);
@@ -1380,5 +1394,49 @@ mod tests {
             before + 1
         );
         assert!(app.sim.world.resource::<GameOverSaved>().0);
+    }
+
+    #[test]
+    fn entering_match_pushes_role_reveal_cue_once() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        app.advance(Duration::from_millis(50));
+
+        let pending = app.sim.world.resource::<crate::game::PendingCues>();
+        assert_eq!(
+            pending
+                .0
+                .iter()
+                .filter(|cue| **cue == "role_reveal")
+                .count(),
+            1
+        );
+        assert!(!pending.0.contains(&"body"));
+        assert!(!pending.0.contains(&"meeting"));
+        assert!(!pending.0.contains(&"task_done"));
+    }
+
+    #[test]
+    fn added_body_pushes_body_cue_once() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        app.sim.world.spawn((
+            crate::game::Body {
+                player_id: 9,
+                name: "Victim".to_string(),
+                reported: false,
+            },
+            crate::game::Position(glam::Vec2::ZERO),
+        ));
+        app.advance(Duration::from_millis(50));
+
+        {
+            let pending = app.sim.world.resource::<crate::game::PendingCues>();
+            assert_eq!(pending.0.iter().filter(|cue| **cue == "body").count(), 1);
+        }
+
+        app.advance(Duration::from_millis(50));
+        let pending = app.sim.world.resource::<crate::game::PendingCues>();
+        assert_eq!(pending.0.iter().filter(|cue| **cue == "body").count(), 1);
     }
 }

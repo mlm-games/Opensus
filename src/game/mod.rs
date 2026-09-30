@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod collision;
 pub mod interaction;
 pub mod kill;
@@ -11,6 +12,7 @@ pub mod schedule;
 pub mod tasks;
 pub mod timer;
 
+pub use audio::*;
 pub use collision::*;
 pub use interaction::*;
 pub use kill::*;
@@ -362,6 +364,7 @@ fn setup_match(world: &mut World) {
 }
 
 pub fn enter_ingame(world: &mut World) {
+    reset_audio_locals(world);
     setup_match(world);
     spawn_map(world);
     spawn_task_stations(world);

@@ -5,9 +5,10 @@ use repame_fx::TransitionFx;
 use super::{
     GamePhase, RuntimeMode, apply_intent_movement, apply_pending_eject, check_win_conditions,
     cleanup_bodies_on_meeting, cleanup_on_game_over_enter, do_kill, do_report, ensure_bot_votes,
-    handle_meeting_commands, local_intent_and_move, process_interactions, read_local_action_edges,
-    reset_cooldowns_after_meeting, tick_emergency_cooldowns, tick_kill_cds, tick_phase_timers,
-    update_local_prompt,
+    handle_meeting_commands, local_intent_and_move, play_body_spawn_cue, play_critical_alarm,
+    play_phase_cues, play_sabotage_cues, play_task_complete_cue, play_vote_confirm_cue,
+    process_interactions, read_local_action_edges, reset_cooldowns_after_meeting,
+    tick_emergency_cooldowns, tick_kill_cds, tick_phase_timers, update_local_prompt,
 };
 use crate::app::{AppState, Paused};
 
@@ -137,6 +138,19 @@ pub fn build_game_schedule() -> Schedule {
             .run_if(in_game)
             .run_if(not_paused)
             .run_if(has_authority),
+    );
+
+    schedule.add_systems(
+        (
+            play_phase_cues,
+            play_body_spawn_cue,
+            play_task_complete_cue,
+            play_vote_confirm_cue,
+            play_sabotage_cues,
+            play_critical_alarm,
+        )
+            .run_if(in_game)
+            .run_if(not_paused),
     );
 
     schedule.add_systems(

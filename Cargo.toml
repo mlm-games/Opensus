@@ -33,6 +33,7 @@ networking-native = [
 repame-sim = "0.3"
 repame-shell = "0.3"
 repame-fx = "0.3"
+repame-audio = "0.3"
 # Direct dep: bevy derive macros expand to `bevy_ecs::` paths, so every
 # game crate names it explicitly. Must unify with repame-sim's 0.19.
 bevy_ecs = "0.19"
@@ -100,6 +101,7 @@ strip = "debuginfo"
 # tracks repame-sim 0.2: uncomment its line to pick up the 0.3 line locally.
 # game-utils = { path = "../../Repos/game-utils/crates/game-utils" }
 # game-utils-repame = { path = "../../Repos/game-utils/crates/game-utils-repame" }
+# repame-audio = { path = "../../Repos/repame/crates/repame-audio" }
 # repame-fx = { path = "../../Repos/repame/crates/repame-fx" }
 # repame-shell = { path = "../../Repos/repame/crates/repame-shell" }
 # repame-sim = { path = "../../Repos/repame/crates/repame-sim" }

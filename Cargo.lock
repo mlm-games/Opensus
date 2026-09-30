@@ -3022,6 +3022,7 @@ dependencies = [
  "rand 0.10.2",
  "renet2",
  "renet2_netcode",
+ "repame-audio",
  "repame-fx",
  "repame-shell",
  "repame-sim 0.3.3",
