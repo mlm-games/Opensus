@@ -19,6 +19,7 @@ use repose_ui::overlay::OverlayHandle;
 use repose_ui::{ViewExt, ZStack};
 use web_time::{Duration, Instant};
 
+use crate::assets::GameImages;
 use crate::game::{
     ActiveSabotage, GameOverSaved, GamePhase, LobbyState, LocalControls, MatchConfig, MatchRng,
     MatchSeed, MeetingCommand, MeetingCommands, PLAYER_COLORS, PendingNetworkStart, RuntimeMode,
@@ -289,6 +290,7 @@ pub struct App {
     shortcut_edges: SharedEdges,
     ui: SharedUi,
     render: RenderState,
+    images: GameImages,
 }
 
 impl App {
@@ -340,6 +342,7 @@ impl App {
             shortcut_edges: shared_edges(),
             ui: SharedUi::default(),
             render: RenderState::default(),
+            images: GameImages::default(),
         }
     }
 
@@ -647,7 +650,7 @@ impl App {
         }
     }
 
-    pub fn view(&mut self, sched: &mut Scheduler, _ctx: &RenderContext, dt: Duration) -> View {
+    pub fn view(&mut self, sched: &mut Scheduler, ctx: &RenderContext, dt: Duration) -> View {
         request_frame();
         install_game_shortcuts(
             &self.shortcut_edges,
@@ -668,7 +671,10 @@ impl App {
             std::process::exit(0);
         }
         sync_shared_ui(&mut self.sim.world, &mut self.ui);
-        self.ui.world = sync_world_render(&mut self.sim.world, &mut self.render, dt);
+        if !self.images.is_loaded() {
+            self.images = GameImages::load(ctx);
+        }
+        self.ui.world = sync_world_render(&mut self.sim.world, &mut self.render, &self.images, dt);
         let overlay_rc = remember(OverlayHandle::new);
         let overlay = (*overlay_rc).clone();
         let focus = remember(FocusRequester::new);

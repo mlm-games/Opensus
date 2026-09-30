@@ -1,12 +1,15 @@
 use bevy_ecs::prelude::*;
 use glam::Vec2;
-use repose_core::Color;
+use repose_core::{Color, ImageFilter};
 
-use super::{DrawItem, push_rect, rgb, rgba};
+use super::{DrawItem, push_image, push_rect, push_surface, rgb, rgba};
+use crate::assets::GameImages;
 use crate::game::{
-    BriefingTable, CORRIDORS, EMERGENCY_BUTTON_POSITION, LocalPlayer, MAP_FLOOR_SIZE, Position,
-    ROOMS, Role, Side, SolidAabb, TaskAssignments, TaskStation,
+    BriefingTable, CORRIDORS, EMERGENCY_BUTTON_POSITION, FloorKind, LocalPlayer, MAP_FLOOR_SIZE,
+    Position, ROOMS, Role, Side, SolidAabb, TaskAssignments, TaskStation,
 };
+
+const STATION_TASK: [usize; 10] = [0, 1, 2, 1, 0, 2, 1, 0, 1, 2];
 
 const DOOR_THRESHOLD_THICKNESS: f32 = 12.0;
 
@@ -28,7 +31,7 @@ const BRIEFING_SEATS: [Vec2; 6] = [
     Vec2::new(68.0, -52.0),
 ];
 
-pub(crate) fn push_map_ground(world: &mut World, items: &mut Vec<DrawItem>) {
+pub(crate) fn push_map_ground(world: &mut World, images: &GameImages, items: &mut Vec<DrawItem>) {
     push_rect(
         items,
         Vec2::ZERO,
@@ -45,10 +48,11 @@ pub(crate) fn push_map_ground(world: &mut World, items: &mut Vec<DrawItem>) {
             rgba(0.015, 0.025, 0.035, 0.98),
             0.0,
         );
-        push_rect(
+        push_surface(
             items,
             corridor.center,
             corridor.size,
+            images.floor_carpet,
             rgb(0.34, 0.43, 0.49),
             0.0,
         );
@@ -62,21 +66,26 @@ pub(crate) fn push_map_ground(world: &mut World, items: &mut Vec<DrawItem>) {
             rgba(0.01, 0.018, 0.027, 0.98),
             0.0,
         );
-        push_rect(
+        let handle = match room.floor {
+            FloorKind::Wood => images.floor_wood,
+            FloorKind::Carpet => images.floor_carpet,
+        };
+        push_surface(
             items,
             room.center,
             room.size,
+            handle,
             rgb(room.tint.0, room.tint.1, room.tint.2),
             0.0,
         );
     }
 
-    push_thresholds(items);
-    push_walls(world, items);
-    push_table(world, items);
+    push_thresholds(images, items);
+    push_walls(world, images, items);
+    push_table(world, images, items);
 }
 
-pub(crate) fn push_map_fixtures(world: &mut World, items: &mut Vec<DrawItem>) {
+pub(crate) fn push_map_fixtures(world: &mut World, images: &GameImages, items: &mut Vec<DrawItem>) {
     for room in ROOMS {
         let center = room.center + Vec2::new(0.0, room.size.y * 0.5 - 20.0);
         let plaque_width = room.name.len() as f32 * 8.0 + 28.0;
@@ -99,7 +108,7 @@ pub(crate) fn push_map_fixtures(world: &mut World, items: &mut Vec<DrawItem>) {
         push_rect(items, position, Vec2::splat(9.0), color, 2.0);
     }
 
-    push_stations(world, items);
+    push_stations(world, images, items);
     push_rect(
         items,
         EMERGENCY_BUTTON_POSITION,
@@ -109,7 +118,7 @@ pub(crate) fn push_map_fixtures(world: &mut World, items: &mut Vec<DrawItem>) {
     );
 }
 
-fn push_thresholds(items: &mut Vec<DrawItem>) {
+fn push_thresholds(images: &GameImages, items: &mut Vec<DrawItem>) {
     let color = rgba(0.75, 0.86, 0.9, 0.72);
     for room in ROOMS {
         let half = room.size * 0.5;
@@ -132,12 +141,12 @@ fn push_thresholds(items: &mut Vec<DrawItem>) {
                     Vec2::new(DOOR_THRESHOLD_THICKNESS, door.width),
                 ),
             };
-            push_rect(items, center, size, color, 0.0);
+            push_surface(items, center, size, images.door, color, 0.0);
         }
     }
 }
 
-fn push_walls(world: &mut World, items: &mut Vec<DrawItem>) {
+fn push_walls(world: &mut World, images: &GameImages, items: &mut Vec<DrawItem>) {
     let shadow = rgba(0.0, 0.0, 0.0, 0.34);
     let face = rgba(0.88, 0.94, 0.96, 0.94);
     let mut query = world.query::<(&Position, &SolidAabb, Option<&BriefingTable>)>();
@@ -153,34 +162,47 @@ fn push_walls(world: &mut World, items: &mut Vec<DrawItem>) {
             shadow,
             0.0,
         );
-        push_rect(items, position.0, size, face, 0.0);
+        let handle = if size.x >= size.y {
+            images.wall_front
+        } else {
+            images.wall_side
+        };
+        push_surface(items, position.0, size, handle, face, 0.0);
     }
 }
 
-fn push_table(world: &mut World, items: &mut Vec<DrawItem>) {
+fn push_table(world: &mut World, images: &GameImages, items: &mut Vec<DrawItem>) {
     let mut query = world.query_filtered::<&Position, With<BriefingTable>>();
     let Ok(position) = query.single(world) else {
         return;
     };
     for offset in BRIEFING_SEATS {
-        push_rect(
+        push_surface(
             items,
             position.0 + offset,
             Vec2::splat(26.0),
+            images.seat,
             rgb(0.74, 0.78, 0.8),
             13.0,
         );
     }
-    push_rect(
-        items,
-        position.0,
-        Vec2::new(160.0, 92.0),
-        rgb(0.16, 0.21, 0.25),
-        16.0,
-    );
+    let size = Vec2::new(160.0, 92.0);
+    match images.table {
+        Some(handle) => push_image(
+            items,
+            position.0,
+            size,
+            handle,
+            Color::WHITE,
+            0.0,
+            false,
+            ImageFilter::Linear,
+        ),
+        None => push_rect(items, position.0, size, rgb(0.16, 0.21, 0.25), 16.0),
+    }
 }
 
-fn push_stations(world: &mut World, items: &mut Vec<DrawItem>) {
+fn push_stations(world: &mut World, images: &GameImages, items: &mut Vec<DrawItem>) {
     let tint = {
         let mut query =
             world.query_filtered::<(&TaskAssignments, Option<&Role>), With<LocalPlayer>>();
@@ -201,6 +223,12 @@ fn push_stations(world: &mut World, items: &mut Vec<DrawItem>) {
             Some(_) => rgba(0.55, 0.60, 0.64, 0.42),
             None => Color::WHITE,
         };
-        push_rect(items, position.0, Vec2::splat(28.0), color, 6.0);
+        let task = station
+            .id
+            .checked_sub(1)
+            .and_then(|index| STATION_TASK.get(index as usize))
+            .map(|task| images.task[*task])
+            .unwrap_or(None);
+        push_surface(items, position.0, Vec2::splat(28.0), task, color, 6.0);
     }
 }

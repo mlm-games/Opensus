@@ -8,10 +8,14 @@ use std::time::Duration;
 use bevy_ecs::prelude::*;
 use glam::Vec2;
 use repose_canvas::DrawScope;
-use repose_core::{Color, Px, Rect, Vec2 as PaintVec2, effective_density_scale};
+use repose_core::{
+    Color, ImageFilter, ImageFit, ImageHandle, Px, Rect, Transform, Vec2 as PaintVec2,
+    effective_density_scale,
+};
 use repose_text::shape_line_cached;
 
 use crate::app::AppState;
+use crate::assets::GameImages;
 
 pub enum DrawItem {
     Rect {
@@ -25,6 +29,15 @@ pub enum DrawItem {
         center: Vec2,
         radii: Vec2,
         color: Color,
+    },
+    Image {
+        center: Vec2,
+        size: Vec2,
+        handle: ImageHandle,
+        tint: Color,
+        rotation: f32,
+        mirror: bool,
+        filter: ImageFilter,
     },
     Text {
         center: Vec2,
@@ -62,17 +75,23 @@ impl Default for WalkAnim {
     }
 }
 
-pub fn sync_world_render(world: &mut World, state: &mut RenderState, dt: Duration) -> WorldRender {
+pub fn sync_world_render(
+    world: &mut World,
+    state: &mut RenderState,
+    images: &GameImages,
+    dt: Duration,
+) -> WorldRender {
     if *world.resource::<AppState>() != AppState::InGame {
         state.walk.clear();
         return WorldRender::default();
     }
     let dt = dt.as_secs_f32();
-    let mut items = Vec::with_capacity(256);
-    map::push_map_ground(world, &mut items);
-    actors::push_corpses(world, &mut items);
-    map::push_map_fixtures(world, &mut items);
-    actors::push_players(world, state, dt, &mut items);
+    let mut items = Vec::with_capacity(320);
+    let colors = actors::player_colors(world);
+    map::push_map_ground(world, images, &mut items);
+    actors::push_corpses(world, images, &colors, &mut items);
+    map::push_map_fixtures(world, images, &mut items);
+    actors::push_players(world, images, state, dt, &mut items);
     actors::follow_camera(world, state, dt);
     WorldRender {
         camera: state.camera,
@@ -125,6 +144,60 @@ pub fn draw_world(scope: &mut DrawScope, render: &WorldRender) {
                     continue;
                 }
                 scope.draw_ellipse(p, radii.x * scale, radii.y * scale, *color);
+            }
+            DrawItem::Image {
+                center,
+                size,
+                handle,
+                tint,
+                rotation,
+                mirror,
+                filter,
+            } => {
+                let p = to_paint(*center, render, screen_center, scale);
+                let w = size.x * scale;
+                let h = size.y * scale;
+                if culled(p, w, h, scope) {
+                    continue;
+                }
+                let rect = Rect {
+                    x: p.x - w * 0.5,
+                    y: p.y - h * 0.5,
+                    w,
+                    h,
+                };
+                let rotation = -*rotation;
+                if rotation.abs() > 1e-6 || *mirror {
+                    let mut spin = Transform::identity();
+                    spin.rotate = rotation;
+                    let mut mirror_scale = Transform::identity();
+                    mirror_scale.scale_x = if *mirror { -1.0 } else { 1.0 };
+                    let mut t = Transform::translate(p.x, p.y)
+                        .combine(&spin)
+                        .combine(&mirror_scale)
+                        .combine(&Transform::translate(-p.x, -p.y));
+                    t.origin_x = 0.0;
+                    t.origin_y = 0.0;
+                    scope.push_transform(t);
+                    scope.draw_image_filtered(
+                        rect,
+                        *handle,
+                        None,
+                        *tint,
+                        ImageFit::FillBounds,
+                        *filter,
+                    );
+                    scope.pop_transform();
+                } else {
+                    scope.draw_image_filtered(
+                        rect,
+                        *handle,
+                        None,
+                        *tint,
+                        ImageFit::FillBounds,
+                        *filter,
+                    );
+                }
             }
             DrawItem::Text {
                 center,
@@ -194,6 +267,51 @@ pub(crate) fn push_rect(
         radius,
         rotation: 0.0,
     });
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn push_image(
+    items: &mut Vec<DrawItem>,
+    center: Vec2,
+    size: Vec2,
+    handle: ImageHandle,
+    tint: Color,
+    rotation: f32,
+    mirror: bool,
+    filter: ImageFilter,
+) {
+    items.push(DrawItem::Image {
+        center,
+        size,
+        handle,
+        tint,
+        rotation,
+        mirror,
+        filter,
+    });
+}
+
+pub(crate) fn push_surface(
+    items: &mut Vec<DrawItem>,
+    center: Vec2,
+    size: Vec2,
+    handle: Option<ImageHandle>,
+    tint: Color,
+    radius: f32,
+) {
+    match handle {
+        Some(handle) => push_image(
+            items,
+            center,
+            size,
+            handle,
+            tint,
+            0.0,
+            false,
+            ImageFilter::Linear,
+        ),
+        None => push_rect(items, center, size, tint, radius),
+    }
 }
 
 pub(crate) fn rgb(r: f32, g: f32, b: f32) -> Color {
@@ -275,7 +393,12 @@ mod tests {
         ));
 
         let mut state = RenderState::default();
-        let render = sync_world_render(&mut world, &mut state, Duration::from_millis(16));
+        let render = sync_world_render(
+            &mut world,
+            &mut state,
+            &GameImages::default(),
+            Duration::from_millis(16),
+        );
         assert!(render.items.len() > 50);
         assert!(
             render
@@ -300,7 +423,89 @@ mod tests {
         );
 
         world.insert_resource(AppState::Title);
-        let cleared = sync_world_render(&mut world, &mut state, Duration::from_millis(16));
+        let cleared = sync_world_render(
+            &mut world,
+            &mut state,
+            &GameImages::default(),
+            Duration::from_millis(16),
+        );
         assert!(cleared.items.is_empty());
+    }
+
+    #[test]
+    fn sync_emits_images_for_loaded_surfaces_and_actors() {
+        let mut world = World::new();
+        world.insert_resource(AppState::InGame);
+        crate::game::map::spawn_map(&mut world);
+        local_player(&mut world, Vec2::new(100.0, 50.0), Vec2::ZERO);
+        world.spawn((
+            Player {
+                id: 2,
+                name: "Victim".to_string(),
+                color_index: 2,
+                speed: 240.0,
+            },
+            Position(Vec2::new(300.0, 100.0)),
+        ));
+        world.spawn((
+            Body {
+                player_id: 2,
+                name: "Victim".to_string(),
+                reported: false,
+            },
+            Position(Vec2::new(-40.0, 20.0)),
+        ));
+
+        let images = GameImages {
+            floor_carpet: Some(7),
+            door: Some(8),
+            bodies: std::array::from_fn(|index| match index {
+                3 => Some(11),
+                2 => Some(14),
+                _ => None,
+            }),
+            clothes: std::array::from_fn(|index| match index {
+                3 => Some(12),
+                2 => Some(13),
+                _ => None,
+            }),
+            ..Default::default()
+        };
+
+        let mut state = RenderState::default();
+        let render = sync_world_render(&mut world, &mut state, &images, Duration::from_millis(16));
+        assert!(
+            render
+                .items
+                .iter()
+                .any(|item| matches!(item, DrawItem::Image { handle: 7, .. }))
+        );
+        assert!(
+            render
+                .items
+                .iter()
+                .any(|item| matches!(item, DrawItem::Image { handle: 8, .. }))
+        );
+        assert!(
+            render
+                .items
+                .iter()
+                .any(|item| matches!(item, DrawItem::Image { handle: 11, filter, .. } if *filter == ImageFilter::Nearest))
+        );
+        assert!(render.items.iter().any(
+            |item| matches!(item, DrawItem::Image { handle: 12, rotation, .. } if *rotation == 0.0)
+        ));
+        assert!(
+            render
+                .items
+                .iter()
+                .any(|item| matches!(item, DrawItem::Image { handle: 13, rotation, .. } if (rotation - std::f32::consts::FRAC_PI_2).abs() < 1e-6))
+        );
+        assert!(
+            !render
+                .items
+                .iter()
+                .any(|item| matches!(item, DrawItem::Ellipse { .. }))
+        );
     }
 }
