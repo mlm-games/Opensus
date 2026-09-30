@@ -1,12 +1,17 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::OnceLock;
 
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::Schedule;
 use game_utils_repame::{I18nStrings, SaveResource, register_i18n, register_save};
 use repame_fx::TransitionFx;
+use repame_shell::{
+    SharedEdges, Staging, install_game_shortcuts, shared_edges, take_shortcut_edges,
+};
 use repame_sim::Sim;
 use repose_core::prelude::Modifier;
-use repose_core::{RenderContext, Scheduler, Sp, View, remember, request_frame};
+use repose_core::{FocusRequester, RenderContext, Scheduler, Sp, View, remember, request_frame};
 use repose_ui::overlay::OverlayHandle;
 use repose_ui::{Text, TextStyle, ViewExt, ZStack};
 use web_time::{Duration, Instant};
@@ -78,7 +83,12 @@ const LOCALES: &[(&str, &str)] = &[
 
 const SPLASH_SECS: f32 = 1.5;
 const LOADING_SECS: f32 = 0.35;
+const UNPAUSE_DELAY_SECS: f32 = 0.2;
 const FONT_FAMILY: &str = "Fredoka";
+
+const SHORTCUT_PAUSE: &str = "opensus.pause";
+const SHORTCUT_RESTART: &str = "opensus.restart";
+const SHORTCUT_CONFIRM: &str = "opensus.confirm";
 
 const FREDOKA_REGULAR: &[u8] = include_bytes!("../../assets/fonts/Fredoka-Regular.ttf");
 const FREDOKA_BOLD: &[u8] = include_bytes!("../../assets/fonts/Fredoka-Bold.ttf");
@@ -97,6 +107,7 @@ pub enum AppState {
 pub enum OverlayMenu {
     #[default]
     None,
+    Pause,
 }
 
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +115,11 @@ pub struct Paused(pub bool);
 
 #[derive(Resource, Default)]
 pub struct PendingUnpause(pub Option<f32>);
+
+#[derive(Resource, Default)]
+pub struct InputEdges {
+    pub pause: bool,
+}
 
 #[derive(Resource)]
 pub struct SplashTimer(pub f32);
@@ -194,10 +210,39 @@ fn tick_pending_unpause(world: &mut World, dt_secs: f32) {
     world.insert_resource(Paused(false));
 }
 
+fn handle_pause_input(world: &mut World) {
+    let pause = match world.get_resource_mut::<InputEdges>() {
+        Some(mut edges) => std::mem::take(&mut edges.pause),
+        None => return,
+    };
+    if !pause || *world.resource::<AppState>() != AppState::InGame {
+        return;
+    }
+    if world.resource::<TransitionFx>().blocking() {
+        return;
+    }
+    let overlay = *world.resource::<OverlayMenu>();
+    let paused = world.resource::<Paused>().0;
+    match overlay {
+        OverlayMenu::None if !paused => {
+            world.insert_resource(Paused(true));
+            world.insert_resource(OverlayMenu::Pause);
+            world.insert_resource(PendingUnpause(None));
+        }
+        OverlayMenu::Pause => {
+            world.insert_resource(OverlayMenu::None);
+            world.insert_resource(PendingUnpause(Some(UNPAUSE_DELAY_SECS)));
+        }
+        _ => {}
+    }
+}
+
 pub struct App {
     pub sim: Sim,
     schedule: Schedule,
     pending_state: Option<AppState>,
+    staging: Rc<RefCell<Staging>>,
+    shortcut_edges: SharedEdges,
 }
 
 impl App {
@@ -216,10 +261,13 @@ impl App {
         sim.world.insert_resource(Paused::default());
         sim.world.insert_resource(OverlayMenu::None);
         sim.world.insert_resource(PendingUnpause::default());
+        sim.world.insert_resource(InputEdges::default());
         Self {
             sim,
             schedule: Schedule::default(),
             pending_state: None,
+            staging: Staging::shared(),
+            shortcut_edges: shared_edges(),
         }
     }
 
@@ -244,6 +292,7 @@ impl App {
         {
             self.begin_to_state(next);
         }
+        handle_pause_input(&mut self.sim.world);
         tick_pending_unpause(&mut self.sim.world, dt_secs);
 
         let state = *self.sim.world.resource::<AppState>();
@@ -256,14 +305,53 @@ impl App {
         self.sim.step_with(dt, move |world| schedule.run(world))
     }
 
-    pub fn view(&mut self, _sched: &mut Scheduler, _ctx: &RenderContext, dt: Duration) -> View {
+    fn feed_polled(&mut self, sched: &Scheduler) {
+        self.staging.borrow_mut().feed_polled(sched);
+    }
+
+    fn feed_input(&mut self) {
+        self.staging.borrow_mut().take_edges();
+        let (pause, _, _) = take_shortcut_edges(&self.shortcut_edges);
+        let blocked = self.sim.world.resource::<TransitionFx>().blocking();
+        self.sim.world.insert_resource(InputEdges {
+            pause: pause && !blocked,
+        });
+    }
+
+    pub fn view(&mut self, sched: &mut Scheduler, _ctx: &RenderContext, dt: Duration) -> View {
         request_frame();
+        install_game_shortcuts(
+            &self.shortcut_edges,
+            SHORTCUT_PAUSE,
+            SHORTCUT_RESTART,
+            SHORTCUT_CONFIRM,
+        );
+        self.feed_polled(sched);
+        self.feed_input();
         self.advance(dt);
         let state = *self.sim.world.resource::<AppState>();
         let title = self.sim.world.resource::<I18nStrings>().get("app-title");
         let overlay_rc = remember(OverlayHandle::new);
         let overlay = (*overlay_rc).clone();
-        let root = ZStack(Modifier::new().fill_max_size()).child(
+        let focus = remember(FocusRequester::new);
+        let focus_positioned = (*focus).clone();
+        let focus_staging = self.staging.clone();
+        let key_staging = self.staging.clone();
+        let root = ZStack(
+            Modifier::new()
+                .fill_max_size()
+                .focusable(true)
+                .focus_requester((*focus).clone())
+                .on_globally_positioned(move |_| focus_positioned.request_focus())
+                .on_focus_changed(move |focused| {
+                    focus_staging.borrow_mut().set_window_focused(focused);
+                })
+                .on_key_event(move |ke| {
+                    key_staging.borrow_mut().handle_key(&ke);
+                    false
+                }),
+        )
+        .child(
             Text(format!("{title} ({state:?})"))
                 .font_family(FONT_FAMILY)
                 .size(Sp(32.0)),
@@ -389,5 +477,55 @@ mod tests {
                 .get_resource::<SaveData>()
                 .is_some_and(|save| save.version <= SAVE_VERSION)
         );
+    }
+
+    #[test]
+    fn escape_pauses_and_unpauses_in_game() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        app.sim.world.insert_resource(InputEdges { pause: true });
+        app.advance(Duration::from_millis(16));
+        assert_eq!(*app.sim.world.resource::<OverlayMenu>(), OverlayMenu::Pause);
+        assert!(app.sim.world.resource::<Paused>().0);
+
+        app.sim.world.insert_resource(InputEdges { pause: true });
+        app.advance(Duration::from_millis(16));
+        assert_eq!(*app.sim.world.resource::<OverlayMenu>(), OverlayMenu::None);
+        assert!(app.sim.world.resource::<Paused>().0);
+        assert!(app.sim.world.resource::<PendingUnpause>().0.is_some());
+
+        app.advance(Duration::from_millis(250));
+        assert!(!app.sim.world.resource::<Paused>().0);
+    }
+
+    #[test]
+    fn pause_edges_gated_by_state_and_transition() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::Title);
+        app.sim.world.insert_resource(InputEdges { pause: true });
+        app.advance(Duration::from_millis(16));
+        assert!(!app.sim.world.resource::<Paused>().0);
+        assert!(!app.sim.world.resource::<InputEdges>().pause);
+
+        goto_state(&mut app.sim.world, AppState::InGame);
+        app.begin_to_state(AppState::Title);
+        app.shortcut_edges.borrow_mut().pause = true;
+        app.feed_input();
+        assert!(!app.sim.world.resource::<InputEdges>().pause);
+        app.sim.world.insert_resource(InputEdges { pause: true });
+        app.advance(Duration::from_millis(16));
+        assert!(!app.sim.world.resource::<Paused>().0);
+    }
+
+    #[test]
+    fn shortcut_edge_reaches_pause_input() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        app.shortcut_edges.borrow_mut().pause = true;
+        app.feed_input();
+        assert!(app.sim.world.resource::<InputEdges>().pause);
+        app.advance(Duration::from_millis(16));
+        assert!(app.sim.world.resource::<Paused>().0);
+        assert!(!app.shortcut_edges.borrow().pause);
     }
 }
