@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use repose_canvas::{Canvas, DrawScope};
 use repose_core::prelude::{
     AlignItems, AlignSelf, AnimationSpec, Color as RColor, Easing, JustifyContent, Modifier,
     remember,
@@ -20,6 +21,7 @@ use repose_ui::{Column, Image, ImageExt, Row, Text as RText, TextStyle, ViewExt,
 
 use crate::app::{AppState, OverlayMenu};
 use crate::game::{GamePhase, Role};
+use crate::render::draw_world;
 use crate::ui::state::SharedUi;
 
 fn t(translations: &HashMap<String, String>, key: &str, fallback: &str) -> String {
@@ -100,10 +102,15 @@ pub fn compose_root(st: SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         AppState::InGame => {
             // Note: `lights_out` remains in SharedUi for the HUD warning.
             // The world vision/FOW is rendered by the radial vision mask.
+            let world_canvas = Canvas(Modifier::new().fill_max_size().hit_passthrough(), {
+                let render = st.world.clone();
+                move |scope: &mut DrawScope| draw_world(scope, &render)
+            });
             let hud = ingame_hud(&st, actions.clone());
             let meeting = meeting_overlay(&st, actions.clone());
             let gameover = gameover_overlay(&st, actions.clone());
             ZStack(Modifier::new().fill_max_size()).child((
+                world_canvas,
                 hud,
                 AnimatedVisibility(
                     matches!(st.game_phase, GamePhase::RoleReveal),

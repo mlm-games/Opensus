@@ -1,5 +1,6 @@
 pub mod app;
 pub mod game;
+pub mod render;
 pub mod save;
 pub mod ui;
 

@@ -3024,6 +3024,7 @@ dependencies = [
  "repame-fx",
  "repame-shell",
  "repame-sim 0.3.3",
+ "repose-canvas",
  "repose-core",
  "repose-material",
  "repose-text",

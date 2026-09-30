@@ -13,6 +13,7 @@ use crate::game::{
     LocalPlayer, LocalPrompt, LocalRole, MatchConfig, MeetingState, Player, Role, RoleRevealTimer,
     SabotageKind, TaskBoard,
 };
+use crate::render::WorldRender;
 use crate::save::SaveData;
 use crate::ui::menus::UiAction;
 
@@ -61,6 +62,7 @@ pub struct SharedUi {
     pub chat_is_ghost_channel: bool,
     pub ui_lab_bg: Option<ImageHandle>,
     pub ui_background: Option<ImageHandle>,
+    pub world: WorldRender,
 }
 
 impl Default for SharedUi {
@@ -108,6 +110,7 @@ impl Default for SharedUi {
             chat_is_ghost_channel: false,
             ui_lab_bg: None,
             ui_background: None,
+            world: WorldRender::default(),
         }
     }
 }

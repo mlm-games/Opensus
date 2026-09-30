@@ -15,6 +15,9 @@ const CORRIDOR_WALL_THICKNESS: f32 = 14.0;
 #[derive(Component)]
 pub struct EmergencyButton;
 
+#[derive(Component)]
+pub struct BriefingTable;
+
 pub fn spawn_map(world: &mut World) {
     spawn_corridor_walls(world);
 
@@ -151,7 +154,14 @@ fn split_spans(start: f32, end: f32, gaps: &[(f32, f32)]) -> Vec<(f32, f32)> {
 fn spawn_briefing_table(world: &mut World) {
     let position = BRIEFING_CENTER + Vec2::new(0.0, 10.0);
 
-    spawn_solid(world, position, Vec2::new(144.0, 76.0));
+    world.spawn((
+        MatchCleanup,
+        BriefingTable,
+        SolidAabb {
+            half_extents: Vec2::new(72.0, 38.0),
+        },
+        Position(position),
+    ));
 }
 
 fn spawn_emergency_button(world: &mut World) {

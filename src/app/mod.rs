@@ -25,6 +25,7 @@ use crate::game::{
     TaskBoard, build_game_schedule, enter_ingame, exit_ingame, handle_start_match, input_direction,
     setup_lobby,
 };
+use crate::render::{RenderState, sync_world_render};
 use crate::save::{SAVE_VERSION, SaveData};
 use crate::ui::{SharedUi, UiAction, UiActions, compose_root, drain_actions, sync_shared_ui};
 
@@ -287,6 +288,7 @@ pub struct App {
     staging: Rc<RefCell<Staging>>,
     shortcut_edges: SharedEdges,
     ui: SharedUi,
+    render: RenderState,
 }
 
 impl App {
@@ -337,6 +339,7 @@ impl App {
             staging: Staging::shared(),
             shortcut_edges: shared_edges(),
             ui: SharedUi::default(),
+            render: RenderState::default(),
         }
     }
 
@@ -665,6 +668,7 @@ impl App {
             std::process::exit(0);
         }
         sync_shared_ui(&mut self.sim.world, &mut self.ui);
+        self.ui.world = sync_world_render(&mut self.sim.world, &mut self.render, dt);
         let overlay_rc = remember(OverlayHandle::new);
         let overlay = (*overlay_rc).clone();
         let focus = remember(FocusRequester::new);
