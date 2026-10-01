@@ -94,9 +94,8 @@ pub fn sync_world_render(
     let mut items = Vec::with_capacity(320);
     let colors = actors::player_colors(world);
     map::push_map_ground(world, images, &mut items);
-    actors::push_corpses(world, images, &colors, &mut items);
     map::push_map_fixtures(world, images, &mut items);
-    actors::push_players(world, images, state, dt, &mut items);
+    actors::push_actors(world, images, &colors, state, dt, &mut items);
     push_vision_mask(world, images, &mut items);
     actors::follow_camera(world, state, dt);
     state.shake_time += dt;
@@ -145,8 +144,11 @@ fn push_vision_mask(world: &mut World, images: &GameImages, items: &mut Vec<Draw
     );
 }
 
+// Legacy bevy camera OrthographicProjection::scale was 0.65 (1/0.65 px per world unit).
+const WORLD_ZOOM: f32 = 1.0 / 0.65;
+
 pub fn draw_world(scope: &mut DrawScope, render: &WorldRender) {
-    let scale = effective_density_scale();
+    let scale = effective_density_scale() * WORLD_ZOOM;
     let screen_center = PaintVec2 {
         x: scope.size.width * 0.5,
         y: scope.size.height * 0.5,
@@ -395,6 +397,132 @@ mod tests {
                 interact: false,
             },
         ));
+    }
+
+    #[test]
+    fn world_zoom_matches_legacy_ortho_scale() {
+        let render = WorldRender {
+            camera: Vec2::ZERO,
+            items: vec![DrawItem::Rect {
+                center: Vec2::new(0.65, 0.0),
+                size: Vec2::splat(0.65),
+                color: rgba(1.0, 1.0, 1.0, 1.0),
+                radius: 0.0,
+                rotation: 0.0,
+            }]
+            .into(),
+        };
+        let mut scope = DrawScope {
+            commands: Vec::new(),
+            size: repose_core::Size {
+                width: 1280.0,
+                height: 720.0,
+            },
+        };
+        draw_world(&mut scope, &render);
+        let [repose_canvas::DrawCommand::Rect { rect, .. }] = scope.commands.as_slice() else {
+            panic!(
+                "expected a single rect, got {} commands",
+                scope.commands.len()
+            );
+        };
+        let center_x = rect.x + rect.w * 0.5;
+        assert!(
+            (center_x - (640.0 + effective_density_scale())).abs() < 1e-3,
+            "center_x {center_x}"
+        );
+    }
+
+    #[test]
+    fn corpses_draw_over_fixtures_and_interleave_with_players_by_y() {
+        let corpse_color = rgba(0.55, 0.1, 0.12, 0.95);
+        let player_color = PLAYER_COLORS[3].with_alpha_f32(1.0);
+
+        let mut world = World::new();
+        world.insert_resource(AppState::InGame);
+        crate::game::map::spawn_map(&mut world);
+        let mut state = RenderState::default();
+        let map_only = sync_world_render(
+            &mut world,
+            &mut state,
+            &GameImages::default(),
+            Duration::from_millis(16),
+        );
+        let map_items = map_only.items.len();
+
+        world.spawn((
+            Body {
+                player_id: 9,
+                name: "Body".to_string(),
+                reported: false,
+            },
+            Position(Vec2::new(5000.0, 5000.0)),
+        ));
+        let with_corpse = sync_world_render(
+            &mut world,
+            &mut state,
+            &GameImages::default(),
+            Duration::from_millis(16),
+        );
+        let corpse = with_corpse
+            .items
+            .iter()
+            .position(|item| {
+                matches!(item, DrawItem::Rect { center, color, .. }
+                if *center == Vec2::new(5000.0, 5000.0) && *color == corpse_color)
+            })
+            .expect("corpse item");
+        assert!(
+            corpse >= map_items,
+            "corpse {corpse} must draw after all map items {map_items}"
+        );
+
+        let indices_at = |corpses_at_y: f32| -> (usize, usize) {
+            let mut world = World::new();
+            world.insert_resource(AppState::InGame);
+            local_player(&mut world, Vec2::new(100.0, 100.0), Vec2::ZERO);
+            world.spawn((
+                Body {
+                    player_id: 2,
+                    name: "Body".to_string(),
+                    reported: false,
+                },
+                Position(Vec2::new(100.0, corpses_at_y)),
+            ));
+            let mut state = RenderState::default();
+            let render = sync_world_render(
+                &mut world,
+                &mut state,
+                &GameImages::default(),
+                Duration::from_millis(16),
+            );
+            let player = render
+                .items
+                .iter()
+                .position(|item| {
+                    matches!(item, DrawItem::Rect { center, color, .. }
+                    if *center == Vec2::new(100.0, 100.0) && *color == player_color)
+                })
+                .expect("player item");
+            let corpse = render
+                .items
+                .iter()
+                .position(
+                    |item| matches!(item, DrawItem::Rect { color, .. } if *color == corpse_color),
+                )
+                .expect("corpse item");
+            (player, corpse)
+        };
+
+        let (player, corpse) = indices_at(85.0);
+        assert!(corpse > player, "corpse south of player draws on top");
+        let (player, corpse) = indices_at(115.0);
+        assert!(corpse < player, "corpse north of player draws below");
+        let (player, corpse) = indices_at(97.0);
+        assert!(
+            corpse < player,
+            "corpse within 5 wu south of player keeps the legacy bias and draws below"
+        );
     }
 
     #[test]

@@ -33,20 +33,28 @@ pub(crate) fn player_colors(world: &mut World) -> HashMap<u64, u8> {
         .collect()
 }
 
-pub(crate) fn push_corpses(
+// Legacy actor_z(y) = 30 - y * 0.01 with bodies drawn at z - 0.05: a corpse sorts as y + 5.
+const CORPSE_Y_SORT_BIAS: f32 = 5.0;
+
+pub(crate) fn push_actors(
     world: &mut World,
     images: &GameImages,
     colors: &HashMap<u64, u8>,
+    state: &mut RenderState,
+    dt: f32,
     items: &mut Vec<DrawItem>,
 ) {
+    let mut layers: Vec<(f32, Vec<DrawItem>)> = Vec::new();
+
     let mut query = world.query::<(&Body, &Position)>();
     for (body, position) in query.iter(world) {
         let color_index = colors.get(&body.player_id).copied().unwrap_or(0);
         let size = Vec2::new(CHARACTER_HEIGHT * 0.7, CHARACTER_HEIGHT * 0.35);
         let tint = rgba(0.55, 0.1, 0.12, 0.95);
+        let mut group = Vec::new();
         match images.clothes[color_index as usize % images.clothes.len()] {
             Some(handle) => push_image(
-                items,
+                &mut group,
                 position.0,
                 size,
                 handle,
@@ -55,18 +63,11 @@ pub(crate) fn push_corpses(
                 false,
                 ImageFilter::Linear,
             ),
-            None => push_rect(items, position.0, size, tint, 6.0),
+            None => push_rect(&mut group, position.0, size, tint, 6.0),
         }
+        layers.push((position.0.y + CORPSE_Y_SORT_BIAS, group));
     }
-}
 
-pub(crate) fn push_players(
-    world: &mut World,
-    images: &GameImages,
-    state: &mut RenderState,
-    dt: f32,
-    items: &mut Vec<DrawItem>,
-) {
     let mut query = world.query::<(&Player, &Position, Option<&Ghost>, Option<&PlayerIntent>)>();
     let mut poses: Vec<ActorPose> = Vec::new();
     let mut seen: HashSet<u64> = HashSet::new();
@@ -93,9 +94,8 @@ pub(crate) fn push_players(
         });
     }
 
-    poses.sort_by(|a, b| b.position.y.total_cmp(&a.position.y));
-
     for pose in poses {
+        let mut group = Vec::new();
         let alpha = if pose.ghost { 0.35 } else { 1.0 };
         let body_center = pose.position + Vec2::new(0.0, pose.bob);
         let size = Vec2::new(
@@ -107,7 +107,7 @@ pub(crate) fn push_players(
         let mirror = pose.facing < 0.0;
         if let Some(handle) = images.bodies[color_index] {
             push_image(
-                items,
+                &mut group,
                 body_center,
                 size,
                 handle,
@@ -118,7 +118,7 @@ pub(crate) fn push_players(
             );
             if let Some(clothes) = images.clothes[color_index] {
                 push_image(
-                    items,
+                    &mut group,
                     body_center,
                     size,
                     clothes,
@@ -130,28 +130,34 @@ pub(crate) fn push_players(
             }
         } else {
             let body_color = PLAYER_COLORS[color_index].with_alpha_f32(alpha);
-            items.push(DrawItem::Rect {
+            group.push(DrawItem::Rect {
                 center: body_center,
                 size,
                 color: body_color,
                 radius: 14.0,
                 rotation: pose.lean,
             });
-            items.push(DrawItem::Ellipse {
+            group.push(DrawItem::Ellipse {
                 center: body_center + Vec2::new(pose.facing * 10.0, 14.0),
                 radii: Vec2::new(9.0, 6.0),
                 color: rgba(0.78, 0.90, 0.94, alpha),
             });
         }
-        items.push(DrawItem::Text {
+        group.push(DrawItem::Text {
             center: pose.position + Vec2::new(0.0, 22.0),
             text: pose.name,
             color: rgba(0.95, 0.95, 0.95, alpha),
             size: 14.0,
         });
+        layers.push((pose.position.y, group));
     }
 
     state.walk.retain(|id, _| seen.contains(id));
+
+    layers.sort_by(|a, b| b.0.total_cmp(&a.0));
+    for (_, mut group) in layers {
+        items.append(&mut group);
+    }
 }
 
 pub(crate) fn follow_camera(world: &mut World, state: &mut RenderState, dt: f32) {
