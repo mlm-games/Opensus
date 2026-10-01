@@ -24,6 +24,16 @@ pub struct ReportBody {
 #[derive(Resource, Default)]
 pub struct KillRequests(pub Vec<KillRequest>);
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RumbleRequest {
+    pub strong: f32,
+    pub weak: f32,
+    pub duration_ms: u32,
+}
+
+#[derive(Resource, Default)]
+pub struct PendingRumble(pub Vec<RumbleRequest>);
+
 #[derive(Resource, Default)]
 pub struct ReportBodies(pub Vec<ReportBody>);
 
@@ -85,6 +95,7 @@ pub fn do_kill(
     stats: Res<super::MatchStats>,
     mut save: ResMut<SaveData>,
     mut trauma: ResMut<Trauma>,
+    mut rumble: ResMut<PendingRumble>,
     mut actors: Query<(&Position, &Role, &Player, &mut KillCooldownLeft), With<Alive>>,
     targets: Query<(Entity, &Player, &Position, &Role), With<Alive>>,
     solids: Query<(&Position, &SolidAabb)>,
@@ -167,6 +178,11 @@ pub fn do_kill(
             Position(body_pos),
         ));
         trauma.add(0.55);
+        rumble.0.push(RumbleRequest {
+            strong: 0.9,
+            weak: 0.5,
+            duration_ms: 200,
+        });
 
         let mut crew = 0u32;
         let mut imps = 0u32;

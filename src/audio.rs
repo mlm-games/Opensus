@@ -3,13 +3,35 @@ use repame_audio::{Audio, AudioChannel, CueDef};
 
 use crate::game::{PendingCues, TONE_CUES};
 
+const AUDIO_RETRY_SECS: f32 = 1.0;
+
 pub struct GameAudio {
     audio: Audio,
+    retry_in: f32,
 }
 
 impl GameAudio {
     pub fn new() -> Self {
         Self::with_audio(Audio::try_init().unwrap_or_else(|_| Audio::noop()))
+    }
+
+    pub fn ensure_live(&mut self, dt_secs: f32) {
+        if self.audio.is_live() {
+            return;
+        }
+        self.retry_in -= dt_secs;
+        if self.retry_in > 0.0 {
+            return;
+        }
+        self.retry_in = AUDIO_RETRY_SECS;
+        let mut audio = Audio::try_init().unwrap_or_else(|_| Audio::noop());
+        if !audio.is_live() {
+            return;
+        }
+        if let Err(error) = load_bank(&mut audio) {
+            log::warn!("audio bank failed to load: {error}");
+        }
+        self.audio = audio;
     }
 
     pub fn play(&mut self, cue: &str) {
@@ -47,7 +69,10 @@ impl GameAudio {
         if let Err(error) = load_bank(&mut audio) {
             log::warn!("audio bank failed to load: {error}");
         }
-        Self { audio }
+        Self {
+            audio,
+            retry_in: AUDIO_RETRY_SECS,
+        }
     }
 }
 

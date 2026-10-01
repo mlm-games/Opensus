@@ -12,7 +12,7 @@ use repame_shell::{
     SharedEdges, Staging, install_game_shortcuts, shared_edges, take_shortcut_edges,
 };
 use repame_sim::Sim;
-use repose_core::input::{Key, KeyEvent, KeyEventType, PhysicalKey};
+use repose_core::input::{ImeEvent, Key, KeyEvent, KeyEventType, PhysicalKey};
 use repose_core::prelude::Modifier;
 use repose_core::{FocusRequester, RenderContext, Scheduler, View, remember, request_frame};
 use repose_ui::overlay::OverlayHandle;
@@ -308,6 +308,7 @@ pub struct App {
     pending_state: Option<AppState>,
     staging: Rc<RefCell<Staging>>,
     chat_keys: Rc<RefCell<Vec<KeyEvent>>>,
+    chat_ime: Rc<RefCell<Vec<String>>>,
     shortcut_edges: SharedEdges,
     ui: SharedUi,
     render: RenderState,
@@ -354,8 +355,10 @@ impl App {
         sim.world.init_resource::<crate::game::ChatInputBuffer>();
         sim.world.init_resource::<crate::game::OutgoingChat>();
         sim.world.init_resource::<crate::game::ChatKeys>();
+        sim.world.init_resource::<crate::game::ChatIme>();
         sim.world.init_resource::<LocalControls>();
         sim.world.init_resource::<PendingCues>();
+        sim.world.init_resource::<crate::game::PendingRumble>();
         sim.world.init_resource::<AudioFrameMemory>();
         sim.world.init_resource::<CriticalAlarmTimer>();
         let seed = rand::random::<u64>();
@@ -375,6 +378,7 @@ impl App {
             pending_state: None,
             staging: Staging::shared(),
             chat_keys: Rc::new(RefCell::new(Vec::new())),
+            chat_ime: Rc::new(RefCell::new(Vec::new())),
             shortcut_edges: shared_edges(),
             ui: SharedUi::default(),
             render: RenderState::default(),
@@ -479,6 +483,17 @@ impl App {
                 .resource_mut::<crate::game::ChatKeys>()
                 .0
                 .extend(chat_events);
+        }
+        let ime_events = std::mem::take(&mut *self.chat_ime.borrow_mut());
+        if state == AppState::InGame
+            && matches!(phase, GamePhase::Meeting | GamePhase::Voting)
+            && !ime_events.is_empty()
+        {
+            self.sim
+                .world
+                .resource_mut::<crate::game::ChatIme>()
+                .0
+                .extend(ime_events);
         }
         let mut edges = self.sim.world.resource_mut::<InputEdges>();
         edges.pause = pause && !blocked;
@@ -732,6 +747,7 @@ impl App {
         {
             std::process::exit(0);
         }
+        self.audio.ensure_live(dt.as_secs_f32());
         let settings = &self.sim.world.resource::<SaveData>().settings;
         self.audio.apply_volumes(
             settings.master_volume,
@@ -740,6 +756,16 @@ impl App {
         );
         self.audio.drain(&mut self.sim.world);
         self.audio.update(dt.as_secs_f32());
+        let rumbles = std::mem::take(
+            &mut self
+                .sim
+                .world
+                .resource_mut::<crate::game::PendingRumble>()
+                .0,
+        );
+        for request in rumbles {
+            repose_core::rumble::push(request.strong, request.weak, request.duration_ms);
+        }
         sync_shared_ui(&mut self.sim.world, &mut self.ui);
         if !self.images.is_loaded() {
             self.images = GameImages::load(ctx);
@@ -752,6 +778,7 @@ impl App {
         let focus_staging = self.staging.clone();
         let key_staging = self.staging.clone();
         let chat_keys = self.chat_keys.clone();
+        let chat_ime = self.chat_ime.clone();
         let chat_open = *self.sim.world.resource::<AppState>() == AppState::InGame
             && matches!(
                 *self.sim.world.resource::<GamePhase>(),
@@ -759,31 +786,38 @@ impl App {
             );
         let actions = self.sim.world.resource::<UiActions>().0.clone();
         let content = compose_root(self.ui.clone(), actions);
-        let root = ZStack(
-            Modifier::new()
-                .fill_max_size()
-                .focusable(true)
-                .focus_requester((*focus).clone())
-                .on_globally_positioned(move |_| focus_positioned.request_focus())
-                .on_focus_changed(move |focused| {
-                    focus_staging.borrow_mut().set_window_focused(focused);
-                })
-                .on_key_event(move |ke| {
-                    key_staging.borrow_mut().handle_key(&ke);
-                    if chat_open
-                        && matches!(ke.event_type, KeyEventType::Down)
-                        && matches!(
-                            ke.key,
-                            Key::Enter | Key::Backspace | Key::Space | Key::Character(_)
-                        )
-                    {
-                        chat_keys.borrow_mut().push(ke);
-                        return true;
-                    }
-                    false
-                }),
-        )
-        .child(content);
+        let mut root_modifier = Modifier::new()
+            .fill_max_size()
+            .focusable(true)
+            .focus_requester((*focus).clone())
+            .on_globally_positioned(move |_| focus_positioned.request_focus())
+            .on_focus_changed(move |focused| {
+                focus_staging.borrow_mut().set_window_focused(focused);
+            })
+            .on_key_event(move |ke| {
+                key_staging.borrow_mut().handle_key(&ke);
+                if chat_open
+                    && matches!(ke.event_type, KeyEventType::Down)
+                    && matches!(
+                        ke.key,
+                        Key::Enter | Key::Backspace | Key::Space | Key::Character(_)
+                    )
+                {
+                    chat_keys.borrow_mut().push(ke);
+                    return true;
+                }
+                false
+            });
+        if chat_open {
+            root_modifier = root_modifier.on_ime(move |event| {
+                if let ImeEvent::Commit(text) = event {
+                    chat_ime.borrow_mut().push(text);
+                    return true;
+                }
+                false
+            });
+        }
+        let root = ZStack(root_modifier).child(content);
         overlay.host(Modifier::new().fill_max_size(), root)
     }
 }
@@ -1438,6 +1472,14 @@ mod tests {
         let mut q = world
             .query_filtered::<&crate::game::KillCooldownLeft, With<crate::game::LocalPlayer>>();
         assert!(q.single(world).unwrap().0 > 20.0);
+        assert_eq!(
+            app.sim.world.resource::<crate::game::PendingRumble>().0,
+            vec![crate::game::RumbleRequest {
+                strong: 0.9,
+                weak: 0.5,
+                duration_ms: 200,
+            }]
+        );
 
         app.sim.world.insert_resource(InputEdges {
             report: true,
@@ -1936,6 +1978,37 @@ mod tests {
             utf16_code_point: 0,
             physical: None,
         }
+    }
+
+    #[test]
+    fn ime_commit_lands_in_chat_buffer() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        advance_for(&mut app, 3100);
+
+        let local = local_entity(&mut app);
+        app.sim
+            .world
+            .entity_mut(local)
+            .insert(crate::game::EmergencyCooldownLeft(0.0));
+        set_local_position(&mut app, crate::game::EMERGENCY_BUTTON_POSITION);
+        app.sim.world.insert_resource(InputEdges {
+            emergency: true,
+            ..Default::default()
+        });
+        app.advance(Duration::from_millis(50));
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Meeting
+        ));
+
+        app.chat_ime.borrow_mut().push("あ".to_string());
+        app.feed_input();
+        advance_for(&mut app, 300);
+        assert_eq!(
+            app.sim.world.resource::<crate::game::ChatInputBuffer>().0,
+            "あ"
+        );
     }
 
     #[test]

@@ -49,18 +49,30 @@ pub struct OutgoingChat(pub Vec<String>);
 #[derive(Resource, Default)]
 pub struct ChatKeys(pub Vec<KeyEvent>);
 
+#[derive(Resource, Default)]
+pub struct ChatIme(pub Vec<String>);
+
 pub fn reset_chat(world: &mut World) {
     world.resource_mut::<ChatState>().clear();
     world.resource_mut::<ChatInputBuffer>().0.clear();
     world.resource_mut::<OutgoingChat>().0.clear();
     world.resource_mut::<ChatKeys>().0.clear();
+    world.resource_mut::<ChatIme>().0.clear();
 }
 
 pub fn capture_chat_text(
     mut keys: ResMut<ChatKeys>,
+    mut ime: ResMut<ChatIme>,
     mut buffer: ResMut<ChatInputBuffer>,
     mut outgoing: ResMut<OutgoingChat>,
 ) {
+    for text in std::mem::take(&mut ime.0) {
+        for ch in text.chars() {
+            if !ch.is_control() && buffer.0.len() < CHAT_MAX_LEN {
+                buffer.0.push(ch);
+            }
+        }
+    }
     for key in std::mem::take(&mut keys.0) {
         if !matches!(key.event_type, KeyEventType::Down) {
             continue;

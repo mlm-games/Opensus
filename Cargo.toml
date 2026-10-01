@@ -95,7 +95,7 @@ inherits = "release"
 opt-level = "s"
 strip = "debuginfo"
 
-# [patch.crates-io]
+[patch.crates-io]
 # Sibling checkouts win over the published crates above; their versions must
 # satisfy the requirements above. game-utils-repame's published 0.4.0 still
 # tracks repame-sim 0.2: uncomment its line to pick up the 0.3 line locally.
@@ -105,7 +105,10 @@ strip = "debuginfo"
 # repame-fx = { path = "../../Repos/repame/crates/repame-fx" }
 # repame-shell = { path = "../../Repos/repame/crates/repame-shell" }
 # repame-sim = { path = "../../Repos/repame/crates/repame-sim" }
-# repose-core = { path = "../../Repos/repose/crates/repose-core" }
+repose-app = { path = "../../Repos/repose/crates/repose-app" }
+repose-core = { path = "../../Repos/repose/crates/repose-core" }
 # repose-material = { path = "../../Repos/repose/crates/repose-material" }
+repose-platform = { path = "../../Repos/repose/crates/repose-platform" }
 # repose-text = { path = "../../Repos/repose/crates/repose-text" }
+repose-tree = { path = "../../Repos/repose/crates/repose-tree" }
 # repose-ui = { path = "../../Repos/repose/crates/repose-ui" }
