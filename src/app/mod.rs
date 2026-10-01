@@ -167,6 +167,8 @@ pub fn goto_state(world: &mut World, next: AppState) {
     if prev == next {
         return;
     }
+    #[cfg(feature = "dev")]
+    log::info!("AppState {next:?}");
     if prev == AppState::InGame {
         exit_ingame(world);
     }
@@ -190,6 +192,14 @@ pub fn goto_state(world: &mut World, next: AppState) {
         AppState::Title => {
             networking::on_enter_title(world);
         }
+    }
+}
+
+fn apply_persisted_locale(world: &mut World) {
+    let language = world.resource::<SaveData>().settings.language.clone();
+    let locale = &mut world.resource_mut::<I18nStrings>().0;
+    if locale.available.contains(&language) {
+        locale.set_locale(&language);
     }
 }
 
@@ -316,6 +326,7 @@ impl App {
             &mut sim.world,
             SaveResource::new("com", "mlm-games", "opensus", "save.ron", SAVE_VERSION),
         );
+        apply_persisted_locale(&mut sim.world);
         sim.world.init_resource::<UiActions>();
         sim.world.init_resource::<RuntimeMode>();
         sim.world.init_resource::<PendingNetworkStart>();
@@ -843,6 +854,23 @@ mod tests {
 
     fn state_of(app: &App) -> AppState {
         *app.sim.world.resource::<AppState>()
+    }
+
+    #[test]
+    fn persisted_locale_applies_when_available() {
+        let mut world = bevy_ecs::world::World::new();
+        register_i18n(&mut world, TRANSLATION_KEYS, LOCALES);
+        let mut save = SaveData::default();
+        save.settings.language = "de".to_string();
+        world.insert_resource(save);
+        apply_persisted_locale(&mut world);
+        assert_eq!(world.resource::<I18nStrings>().0.current, "de");
+
+        let mut unsupported = SaveData::default();
+        unsupported.settings.language = "xx".to_string();
+        world.insert_resource(unsupported);
+        apply_persisted_locale(&mut world);
+        assert_eq!(world.resource::<I18nStrings>().0.current, "de");
     }
 
     #[test]
