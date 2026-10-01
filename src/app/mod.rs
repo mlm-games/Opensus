@@ -25,7 +25,7 @@ use crate::game::{
     ActiveSabotage, AudioFrameMemory, CriticalAlarmTimer, GameOverSaved, GamePhase, LobbyState,
     LocalControls, MatchConfig, MatchRng, MatchSeed, MeetingCommand, MeetingCommands,
     PLAYER_COLORS, PendingCues, PendingNetworkStart, RuntimeMode, TaskBoard, build_game_schedule,
-    enter_ingame, exit_ingame, handle_start_match, input_direction, setup_lobby,
+    enter_ingame, exit_ingame, handle_start_match, input_direction, networking, setup_lobby,
 };
 use crate::render::{RenderState, sync_world_render};
 use crate::save::{SAVE_VERSION, SaveData};
@@ -186,7 +186,9 @@ pub fn goto_state(world: &mut World, next: AppState) {
         AppState::InGame => {
             enter_ingame(world);
         }
-        AppState::Title => {}
+        AppState::Title => {
+            networking::on_enter_title(world);
+        }
     }
 }
 
@@ -316,6 +318,7 @@ impl App {
         sim.world.init_resource::<UiActions>();
         sim.world.init_resource::<RuntimeMode>();
         sim.world.init_resource::<PendingNetworkStart>();
+        networking::init_resources(&mut sim.world);
         sim.world.init_resource::<MatchConfig>();
         sim.world.init_resource::<LobbyState>();
         sim.world.init_resource::<GamePhase>();
@@ -696,7 +699,9 @@ impl App {
         self.feed_polled(sched);
         self.feed_input();
         self.process_ui_actions();
+        networking::pre_frame(&mut self.sim.world, dt);
         self.advance(dt);
+        networking::post_frame(&mut self.sim.world);
         if self
             .sim
             .world

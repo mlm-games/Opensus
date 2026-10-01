@@ -1,0 +1,213 @@
+use serde::{Deserialize, Serialize};
+
+use crate::game::{GamePhase, Role, SabotageKind};
+
+pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_ID: u64 = 0x4F50_454E_5355_5301;
+pub const GAMEPLAY_PROTOCOL_VERSION: u16 = 2;
+pub const MAP_REVISION: u32 = 2;
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct MapIdentity {
+    pub map_id: String,
+    pub revision: u32,
+    pub layout_hash: u64,
+}
+
+impl Default for MapIdentity {
+    fn default() -> Self {
+        Self {
+            map_id: "opensus-ship-01".to_string(),
+            revision: MAP_REVISION,
+            layout_hash: 0,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct NetInputCommand {
+    pub sequence: u32,
+    pub movement: [f32; 2],
+    pub interact: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NetLobbyPlayer {
+    pub player_id: u64,
+    pub name: String,
+    pub color_index: u8,
+    pub ready: bool,
+    pub is_host: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NetPlayerState {
+    pub player_id: u64,
+    pub name: String,
+    pub color_index: u8,
+    pub position: [f32; 2],
+    pub alive: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NetBodyState {
+    pub body_id: u64,
+    pub player_id: u64,
+    pub name: String,
+    pub position: [f32; 2],
+    pub reported: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NetSabotageState {
+    pub kind: SabotageKind,
+    pub remaining: f32,
+    pub fixes_needed: u8,
+    pub fixes_done: u8,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct NetTaskState {
+    pub id: u32,
+    pub progress: f32,
+    pub done: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct NetFixStationState {
+    pub id: u8,
+    pub kind: SabotageKind,
+    pub progress: f32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PrivatePlayerState {
+    pub kill_cooldown: f32,
+    pub emergencies_left: u8,
+    pub role: Role,
+    pub voted: bool,
+    pub vote_tallies: Vec<(String, u32)>,
+
+    /// Last input command fully simulated by the authoritative server.
+    pub acknowledged_input_sequence: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum ClientPacket {
+    Hello {
+        protocol_version: u32,
+        name: String,
+        color_index: u8,
+    },
+    Ready {
+        ready: bool,
+    },
+    Input {
+        commands: Vec<NetInputCommand>,
+    },
+    Kill,
+    Report,
+    Emergency,
+    Vote {
+        target: Option<u64>,
+    },
+    Sabotage {
+        kind: SabotageKind,
+    },
+    Chat {
+        text: String,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ServerPacket {
+    Welcome {
+        player_id: u64,
+    },
+    LobbySnapshot {
+        players: Vec<NetLobbyPlayer>,
+    },
+    MatchStarted {
+        your_role: Role,
+    },
+    WorldSnapshot {
+        sequence: u32,
+        players: Vec<NetPlayerState>,
+        bodies: Vec<NetBodyState>,
+        phase: GamePhase,
+        sabotage: Option<NetSabotageState>,
+        tasks_completed: u32,
+        tasks_total: u32,
+        task_states: Vec<NetTaskState>,
+        fix_station_states: Vec<NetFixStationState>,
+        meeting_prompt: String,
+        meeting_timer: f32,
+        vote_options: Vec<(u64, String, bool)>,
+        result_text: String,
+        private: Option<PrivatePlayerState>,
+    },
+    Chat {
+        player_id: u64,
+        name: String,
+        text: String,
+        ghost: bool,
+    },
+    Rejected {
+        reason: String,
+    },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn packets_survive_bincode_roundtrip() {
+        let client = ClientPacket::Input {
+            commands: vec![NetInputCommand {
+                sequence: 7,
+                movement: [0.5, -1.0],
+                interact: true,
+            }],
+        };
+        let bytes = bincode::serialize(&client).unwrap();
+        let back: ClientPacket = bincode::deserialize(&bytes).unwrap();
+        assert_eq!(client, back);
+
+        let server = ServerPacket::WorldSnapshot {
+            sequence: 9,
+            players: vec![NetPlayerState {
+                player_id: 2,
+                name: "Ada".into(),
+                color_index: 3,
+                position: [1.5, -2.5],
+                alive: false,
+            }],
+            bodies: vec![],
+            phase: GamePhase::GameOver {
+                crew_win: true,
+                reason: crate::game::WinReason::Tasks,
+            },
+            sabotage: None,
+            tasks_completed: 4,
+            tasks_total: 5,
+            task_states: vec![],
+            fix_station_states: vec![],
+            meeting_prompt: String::new(),
+            meeting_timer: 0.0,
+            vote_options: vec![],
+            result_text: String::new(),
+            private: Some(PrivatePlayerState {
+                kill_cooldown: 12.5,
+                emergencies_left: 1,
+                role: Role::Impostor,
+                voted: true,
+                vote_tallies: vec![("Ada".into(), 2)],
+                acknowledged_input_sequence: Some(3),
+            }),
+        };
+        let bytes = bincode::serialize(&server).unwrap();
+        let back: ServerPacket = bincode::deserialize(&bytes).unwrap();
+        assert_eq!(format!("{back:?}"), format!("{server:?}"));
+    }
+}

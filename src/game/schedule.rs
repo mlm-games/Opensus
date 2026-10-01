@@ -22,10 +22,12 @@ use crate::app::{AppState, Paused};
 /// timers and transitions. `Win` resolves whether the match is over.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GameSimSet {
+    Receive,
     Input,
     Resolve,
     Phase,
     Win,
+    Send,
 }
 
 /// Ordered slices inside `GameSimSet::Resolve`.
@@ -201,6 +203,8 @@ pub fn build_game_schedule() -> Schedule {
         )
             .run_if(in_game),
     );
+
+    super::networking::register_schedule(&mut schedule);
 
     schedule
 }

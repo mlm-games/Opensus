@@ -7,6 +7,7 @@ pub mod layout;
 pub mod map;
 pub mod meeting;
 pub mod navigation;
+pub mod networking;
 pub mod player;
 pub mod roles;
 pub mod sabotage;
@@ -38,6 +39,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use repose_core::Color;
+use serde::{Deserialize, Serialize};
 
 use crate::save::SaveData;
 
@@ -87,7 +89,7 @@ pub enum PendingNetworkStart {
     },
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum WinReason {
     Tasks,
     ImpostorsEliminated,
@@ -111,7 +113,7 @@ impl WinReason {
     }
 }
 
-#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum GamePhase {
     #[default]
     None,
@@ -388,6 +390,7 @@ fn setup_match(world: &mut World) {
 }
 
 pub fn enter_ingame(world: &mut World) {
+    networking::reset_match_state(world);
     reset_chat(world);
     reset_audio_locals(world);
     setup_match(world);
@@ -398,6 +401,7 @@ pub fn enter_ingame(world: &mut World) {
 }
 
 pub fn exit_ingame(world: &mut World) {
+    networking::reset_match_state(world);
     let entities: Vec<Entity> = {
         let mut query = world.query_filtered::<Entity, With<MatchCleanup>>();
         query.iter(world).collect()

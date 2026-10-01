@@ -6,8 +6,9 @@ use super::{
 };
 use crate::app::InputEdges;
 use crate::save::SaveData;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum SabotageKind {
     Lights,
     Oxygen,

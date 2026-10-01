@@ -1,8 +1,9 @@
 use bevy_ecs::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use super::PlayerIntent;
 
-#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Role {
     Crewmate,
     Impostor,
