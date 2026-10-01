@@ -1302,6 +1302,11 @@ mod tests {
     fn kill_and_report_open_a_meeting() {
         let mut app = App::new();
         goto_state(&mut app.sim.world, AppState::InGame);
+        {
+            let mut cfg = app.sim.world.resource::<MatchConfig>().clone();
+            cfg.bot_report_range = 0.0;
+            app.sim.world.insert_resource(cfg);
+        }
         advance_for(&mut app, 3100);
 
         let local = local_entity(&mut app);
@@ -1394,6 +1399,154 @@ mod tests {
             before + 1
         );
         assert!(app.sim.world.resource::<GameOverSaved>().0);
+    }
+
+    #[test]
+    fn bot_paths_toward_assigned_task() {
+        let mut app = App::new();
+        app.sim.world.insert_resource(MatchSeed(7));
+        goto_state(&mut app.sim.world, AppState::InGame);
+        app.sim.world.insert_resource(GameOverSaved(true));
+        advance_for(&mut app, 3100);
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Playing
+        ));
+
+        let station = crate::game::TASK_STATIONS[0];
+        let bot = {
+            let world = &mut app.sim.world;
+            let mut query = world.query_filtered::<(
+                Entity,
+                &crate::game::Position,
+                &mut crate::game::TaskAssignments,
+                &crate::game::Role,
+            ), (With<crate::game::AiPlayer>, With<crate::game::Alive>)>(
+            );
+            let mut found = None;
+            for (entity, position, mut assignments, role) in query.iter_mut(world) {
+                if !matches!(role, crate::game::Role::Crewmate) {
+                    continue;
+                }
+                assignments.assigned = vec![station.0];
+                assignments.completed.clear();
+                found = Some((entity, position.0.distance(station.2)));
+                break;
+            }
+            found.unwrap()
+        };
+
+        advance_for(&mut app, 4000);
+
+        let world = &mut app.sim.world;
+        let mut query =
+            world.query_filtered::<&crate::game::Position, With<crate::game::AiPlayer>>();
+        let after = query.get(world, bot.0).unwrap().0.distance(station.2);
+
+        assert!(after < bot.1 * 0.6, "before {} after {}", bot.1, after);
+    }
+
+    #[test]
+    fn bot_completes_assigned_task() {
+        let mut app = App::new();
+        app.sim.world.insert_resource(MatchSeed(9));
+        goto_state(&mut app.sim.world, AppState::InGame);
+        app.sim.world.insert_resource(GameOverSaved(true));
+        advance_for(&mut app, 3100);
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Playing
+        ));
+
+        let task_id = {
+            let world = &mut app.sim.world;
+            let mut stations = world.query::<(&crate::game::TaskStation, &crate::game::Position)>();
+            let station_positions: Vec<(u32, glam::Vec2)> = stations
+                .iter(world)
+                .map(|(station, position)| (station.id, position.0))
+                .collect();
+
+            let mut bots = world.query_filtered::<(
+                &mut crate::game::TaskAssignments,
+                &mut crate::game::AiPlayer,
+                &mut crate::game::Position,
+                &crate::game::Role,
+            ), (With<crate::game::AiPlayer>, With<crate::game::Alive>)>(
+            );
+            let mut found = None;
+            for (mut assignments, mut ai, mut position, role) in bots.iter_mut(world) {
+                if !matches!(role, crate::game::Role::Crewmate) {
+                    continue;
+                }
+                let id = assignments.assigned[0];
+                let (_, station_position) = *station_positions
+                    .iter()
+                    .find(|(station_id, _)| *station_id == id)
+                    .unwrap();
+                assignments.assigned = vec![id];
+                assignments.completed.clear();
+                ai.target_task = None;
+                position.0 = station_position + glam::Vec2::new(30.0, 0.0);
+                found = Some(id);
+                break;
+            }
+            found.unwrap()
+        };
+
+        advance_for(&mut app, 3000);
+
+        let world = &mut app.sim.world;
+        let mut query = world.query_filtered::<&crate::game::TaskAssignments, (
+            With<crate::game::AiPlayer>,
+            With<crate::game::Alive>,
+        )>();
+        assert!(
+            query
+                .iter(world)
+                .any(|assignments| assignments.completed.contains(&task_id))
+        );
+        assert!(world.resource::<TaskBoard>().completed >= 1);
+    }
+
+    #[test]
+    fn ai_leaves_local_intent_untouched() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        advance_for(&mut app, 3100);
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Playing
+        ));
+
+        let start = {
+            let world = &mut app.sim.world;
+            let mut query =
+                world.query_filtered::<&crate::game::Position, With<crate::game::LocalPlayer>>();
+            query.single(world).unwrap().0
+        };
+
+        app.sim.world.insert_resource(LocalControls {
+            direction: glam::Vec2::X,
+            interact: true,
+        });
+        app.advance(Duration::from_millis(50));
+
+        let world = &mut app.sim.world;
+        let mut local = world.query_filtered::<(&crate::game::PlayerIntent, &crate::game::Position), (
+            With<crate::game::LocalPlayer>,
+            With<crate::game::Alive>,
+        )>();
+        let (intent, position) = local.single(world).unwrap();
+        assert_eq!(intent.movement, glam::Vec2::X);
+        assert!(intent.interact);
+        assert!(position.0.x > start.x);
+
+        let mut bots =
+            world.query_filtered::<&crate::game::PlayerIntent, With<crate::game::AiPlayer>>();
+        assert!(
+            bots.iter(world)
+                .any(|intent| intent.movement.length_squared() > 0.0)
+        );
     }
 
     #[test]

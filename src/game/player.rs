@@ -2,13 +2,15 @@ use std::collections::HashSet;
 
 use bevy_ecs::prelude::*;
 use glam::Vec2;
+use rand::RngExt;
 use rand::seq::SliceRandom;
 
 use super::{
     ActiveSabotage, Alive, Body, EmergenciesLeft, EmergencyButton, EmergencyCooldownLeft,
-    GamePhase, Ghost, KillCooldownLeft, LocalRole, MatchCleanup, MatchConfig, MatchRng, MatchStats,
-    Position, Role, SabotageFixContribution, SabotageFixStation, SimTimer, TaskAssignments,
-    TaskStation, TimerMode, deterministic_task_ids,
+    GamePhase, Ghost, KillCooldownLeft, KillRequest, KillRequests, LocalRole, MatchCleanup,
+    MatchConfig, MatchRng, MatchStats, Position, ReportBodies, ReportBody, Role,
+    SabotageFixContribution, SabotageFixStation, SimTimer, SolidAabb, TaskAssignments, TaskStation,
+    TimerMode, deterministic_task_ids,
 };
 use crate::save::SaveData;
 
@@ -328,6 +330,206 @@ pub fn apply_intent_movement(
         );
 
         position.0 = stepped;
+    }
+}
+
+pub fn ai_brain(
+    time: Res<repame_sim::SimTime>,
+    cfg: Res<MatchConfig>,
+    phase: Res<GamePhase>,
+    mut kill_tx: ResMut<KillRequests>,
+    mut report_tx: ResMut<ReportBodies>,
+    mut match_rng: ResMut<MatchRng>,
+    tasks: Query<(Entity, &Position, &TaskStation)>,
+    bodies: Query<(&Position, &Body)>,
+    solids: Query<(&Position, &SolidAabb), Without<Player>>,
+    mut ais: Query<
+        (
+            &Player,
+            &Role,
+            &TaskAssignments,
+            &mut AiPlayer,
+            &mut PlayerIntent,
+            &Position,
+            Option<&mut KillCooldownLeft>,
+        ),
+        With<Alive>,
+    >,
+) {
+    if !matches!(*phase, GamePhase::Playing) {
+        for (_, _, _, _, mut intent, _, _) in &mut ais {
+            intent.movement = Vec2::ZERO;
+            intent.interact = false;
+        }
+        return;
+    }
+
+    let boxes = super::collision::solid_boxes(&solids);
+    let rng = &mut match_rng.0;
+
+    for (player, role, tasks_for_player, mut ai, mut intent, position, kill_cd) in &mut ais {
+        ai.repath.tick(time.delta_secs);
+        ai.action.tick(time.delta_secs);
+        let pos = position.0;
+
+        let near_body = bodies
+            .iter()
+            .any(|(bt, b)| !b.reported && pos.distance(bt.0) <= cfg.bot_report_range);
+        if near_body {
+            if !ai.reported_this_body {
+                report_tx.0.push(ReportBody {
+                    reporter_id: player.id,
+                });
+                ai.reported_this_body = true;
+            }
+            intent.movement = Vec2::ZERO;
+            intent.interact = false;
+            continue;
+        }
+        ai.reported_this_body = false;
+
+        if matches!(role, Role::Impostor) {
+            let cd_ok = kill_cd.as_ref().is_some_and(|cd| cd.0 <= 0.0);
+            let chance = cfg.bot_kill_aggression * time.delta_secs * 2.0;
+            if cd_ok && rng.random::<f32>() < chance {
+                kill_tx.0.push(KillRequest {
+                    actor_id: player.id,
+                });
+            }
+        }
+
+        if ai.repath.just_finished() || ai.target_task.is_none() {
+            let mut best: Option<(Entity, f32)> = None;
+            for (te, tt, st) in &tasks {
+                if !tasks_for_player.has(st.id) || tasks_for_player.is_done(st.id) {
+                    continue;
+                }
+
+                if matches!(role, Role::Impostor) && rng.random::<f32>() > 0.35 {
+                    continue;
+                }
+
+                let d = pos.distance(tt.0);
+                if best.is_none_or(|(_, bd)| d < bd) {
+                    best = Some((te, d));
+                }
+            }
+            ai.target_task = best.map(|(e, _)| e);
+            if ai.target_task.is_none() {
+                let angle = rng.random::<f32>() * std::f32::consts::TAU;
+                ai.dir = Vec2::new(angle.cos(), angle.sin());
+            }
+        }
+
+        if let Some(tid) = ai.target_task {
+            if let Ok((_, tt, st)) = tasks.get(tid) {
+                if !tasks_for_player.has(st.id) || tasks_for_player.is_done(st.id) {
+                    ai.target_task = None;
+                    intent.interact = false;
+                    intent.movement = ai.dir;
+                    continue;
+                }
+                let target = tt.0;
+                let dist = pos.distance(target);
+                if dist <= cfg.interact_range * 0.85 {
+                    intent.movement = Vec2::ZERO;
+                    intent.interact = matches!(role, Role::Crewmate);
+                } else {
+                    let wp = super::navigation::next_waypoint(pos, target, &boxes);
+                    intent.movement = (wp - pos).normalize_or_zero();
+                    intent.interact = false;
+                }
+            } else {
+                ai.target_task = None;
+            }
+        } else {
+            intent.movement = ai.dir;
+            intent.interact = false;
+        }
+    }
+}
+
+pub fn ai_ghost_brain(
+    time: Res<repame_sim::SimTime>,
+    cfg: Res<MatchConfig>,
+    phase: Res<GamePhase>,
+    mut match_rng: ResMut<MatchRng>,
+    tasks: Query<(Entity, &Position, &TaskStation)>,
+    mut ais: Query<
+        (
+            &Role,
+            &TaskAssignments,
+            &mut AiPlayer,
+            &mut PlayerIntent,
+            &Position,
+        ),
+        (With<Ghost>, With<AiPlayer>, Without<Alive>),
+    >,
+) {
+    if !matches!(*phase, GamePhase::Playing) {
+        for (_, _, _, mut intent, _) in &mut ais {
+            intent.movement = Vec2::ZERO;
+            intent.interact = false;
+        }
+        return;
+    }
+
+    let rng = &mut match_rng.0;
+
+    for (role, tasks_for_player, mut ai, mut intent, position) in &mut ais {
+        if !matches!(role, Role::Crewmate) {
+            intent.movement = Vec2::ZERO;
+            intent.interact = false;
+            continue;
+        }
+
+        ai.repath.tick(time.delta_secs);
+        let pos = position.0;
+
+        if ai.repath.just_finished() || ai.target_task.is_none() {
+            let mut best: Option<(Entity, f32)> = None;
+            for (te, tt, st) in &tasks {
+                if !tasks_for_player.has(st.id) || tasks_for_player.is_done(st.id) {
+                    continue;
+                }
+
+                let d = pos.distance(tt.0);
+                if best.is_none_or(|(_, bd)| d < bd) {
+                    best = Some((te, d));
+                }
+            }
+            ai.target_task = best.map(|(e, _)| e);
+            if ai.target_task.is_none() {
+                let angle = rng.random::<f32>() * std::f32::consts::TAU;
+                ai.dir = Vec2::new(angle.cos(), angle.sin());
+            }
+        }
+
+        if let Some(tid) = ai.target_task {
+            if let Ok((_, tt, st)) = tasks.get(tid) {
+                if !tasks_for_player.has(st.id) || tasks_for_player.is_done(st.id) {
+                    ai.target_task = None;
+                    intent.interact = false;
+                    intent.movement = ai.dir;
+                    continue;
+                }
+                let delta = tt.0 - pos;
+                if delta.length() <= cfg.interact_range * 0.85 {
+                    intent.movement = Vec2::ZERO;
+                    intent.interact = true;
+                } else {
+                    intent.movement = delta.normalize_or_zero();
+                    intent.interact = false;
+                }
+            } else {
+                ai.target_task = None;
+                intent.movement = ai.dir;
+                intent.interact = false;
+            }
+        } else {
+            intent.movement = ai.dir;
+            intent.interact = false;
+        }
     }
 }
 
