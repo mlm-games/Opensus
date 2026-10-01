@@ -390,7 +390,7 @@ impl App {
         if let Some(next) = requested
             && self.pending_state.is_none()
         {
-            self.pending_state = Some(next);
+            self.begin_to_state(next);
         }
         if self.sim.world.resource::<TransitionFx>().alpha() >= 1.0
             && let Some(next) = self.pending_state.take()

@@ -201,3 +201,210 @@ pub fn register_schedule(schedule: &mut Schedule) {
 
 #[cfg(not(all(feature = "networking-native", not(target_arch = "wasm32"))))]
 pub fn register_schedule(_schedule: &mut Schedule) {}
+
+#[cfg(all(test, feature = "networking-native", not(target_arch = "wasm32")))]
+mod integration_tests {
+    use std::time::Duration;
+
+    use crate::app::{App, AppState, goto_state};
+    use crate::game::{
+        GamePhase, LobbySlot, LobbyState, LocalPlayer, LocalPlayerId, LocalRole,
+        PendingNetworkStart, Player, Role, RuntimeMode,
+    };
+
+    use super::*;
+
+    const ADDR: &str = "127.0.0.1:47311";
+
+    fn frame(app: &mut App, dt: Duration) {
+        pre_frame(&mut app.sim.world, dt);
+        app.advance(dt);
+        post_frame(&mut app.sim.world);
+    }
+
+    fn slot_names(app: &App) -> Vec<String> {
+        app.sim
+            .world
+            .resource::<LobbyState>()
+            .slots
+            .iter()
+            .map(|slot| format!("{}(ready={})", slot.name, slot.ready))
+            .collect()
+    }
+
+    fn player_count(app: &mut App) -> usize {
+        app.sim
+            .world
+            .query::<&Player>()
+            .iter(&app.sim.world)
+            .count()
+    }
+
+    #[test]
+    fn host_and_client_handshake_match_start_and_snapshot_sync() {
+        let dt = Duration::from_millis(17);
+
+        let mut host = App::new();
+        *host.sim.world.resource_mut::<RuntimeMode>() = RuntimeMode::Host;
+        *host.sim.world.resource_mut::<PendingNetworkStart>() = PendingNetworkStart::HostLocal {
+            bind_addr: ADDR.into(),
+        };
+        goto_state(&mut host.sim.world, AppState::Lobby);
+        for i in 0..2u64 {
+            host.sim
+                .world
+                .resource_mut::<LobbyState>()
+                .slots
+                .push(LobbySlot {
+                    id: 10 + i,
+                    name: format!("Bot-{i}"),
+                    color_index: (2 + i) as u8,
+                    ready: true,
+                    is_local: false,
+                    is_host: false,
+                    is_bot: true,
+                });
+        }
+
+        let mut client = App::new();
+        *client.sim.world.resource_mut::<RuntimeMode>() = RuntimeMode::Client;
+        *client.sim.world.resource_mut::<PendingNetworkStart>() = PendingNetworkStart::JoinLocal {
+            server_addr: ADDR.into(),
+        };
+        goto_state(&mut client.sim.world, AppState::Lobby);
+
+        let mut bootstrapped = false;
+        for _ in 0..60 {
+            frame(&mut host, dt);
+            frame(&mut client, dt);
+            if host.sim.world.get_resource::<NetServerRes>().is_some()
+                && client.sim.world.get_resource::<NetClientRes>().is_some()
+            {
+                bootstrapped = true;
+                break;
+            }
+        }
+        assert!(
+            bootstrapped,
+            "network bootstrap failed (port {ADDR} busy or init error)"
+        );
+
+        let mut synced = false;
+        for _ in 0..600 {
+            frame(&mut host, dt);
+            frame(&mut client, dt);
+            synced = host.sim.world.resource::<LobbyState>().slots.len() >= 2
+                && client.sim.world.resource::<LobbyState>().slots.len() >= 2;
+            if synced {
+                break;
+            }
+        }
+        assert!(
+            synced,
+            "lobby slots never synced: host={:?} client={:?}",
+            slot_names(&host),
+            slot_names(&client)
+        );
+
+        host.sim.world.resource_mut::<LobbyState>().local_ready = true;
+        client.sim.world.resource_mut::<LobbyState>().local_ready = true;
+
+        let mut start_allowed = false;
+        for _ in 0..600 {
+            frame(&mut host, dt);
+            frame(&mut client, dt);
+            if crate::game::handle_start_match(&host.sim.world) {
+                start_allowed = true;
+                break;
+            }
+        }
+        assert!(
+            start_allowed,
+            "host start predicate never satisfied: {:?}",
+            slot_names(&host)
+        );
+        host.begin_to_state(AppState::InGame);
+
+        let mut client_ingame = false;
+        for _ in 0..600 {
+            frame(&mut host, dt);
+            frame(&mut client, dt);
+            if *client.sim.world.resource::<AppState>() == AppState::InGame {
+                client_ingame = true;
+                break;
+            }
+        }
+        assert!(
+            client_ingame,
+            "client never entered InGame via MatchStarted: host_state={:?} client_state={:?} my_id={:?} state_request={:?}",
+            *host.sim.world.resource::<AppState>(),
+            *client.sim.world.resource::<AppState>(),
+            client.sim.world.resource::<NetworkIdentity>().my_player_id,
+            client.sim.world.resource::<crate::game::StateRequest>().0,
+        );
+
+        let mut playing = false;
+        for _ in 0..1500 {
+            frame(&mut host, dt);
+            frame(&mut client, dt);
+            playing = matches!(*host.sim.world.resource::<GamePhase>(), GamePhase::Playing)
+                && matches!(
+                    *client.sim.world.resource::<GamePhase>(),
+                    GamePhase::Playing
+                );
+            if playing {
+                break;
+            }
+        }
+        assert!(
+            playing,
+            "phases did not converge on Playing: host={:?} client={:?}",
+            *host.sim.world.resource::<GamePhase>(),
+            *client.sim.world.resource::<GamePhase>()
+        );
+
+        assert_eq!(player_count(&mut host), 4, "host player count");
+        assert_eq!(player_count(&mut client), 4, "client player count");
+
+        let client_id = client
+            .sim
+            .world
+            .resource::<LocalPlayerId>()
+            .0
+            .expect("client local player id");
+        assert_eq!(
+            Some(client_id),
+            client.sim.world.resource::<NetworkIdentity>().my_player_id
+        );
+
+        let mut local_marked = false;
+        let mut remote_interp = false;
+        let mut query =
+            client
+                .sim
+                .world
+                .query::<(&Player, Option<&LocalPlayer>, Option<&ReplicaInterpolation>)>();
+        for (player, local, interp) in query.iter(&client.sim.world) {
+            if player.id == client_id {
+                local_marked = local.is_some();
+            } else {
+                remote_interp = interp.is_some();
+            }
+        }
+        assert!(local_marked, "client own player lacks LocalPlayer");
+        assert!(remote_interp, "client remote player lacks interpolation");
+
+        let authoritative_role = {
+            let mut query = host.sim.world.query::<(&Player, &Role)>();
+            query
+                .iter(&host.sim.world)
+                .find(|(player, _)| player.id == client_id)
+                .map(|(_, role)| *role)
+        };
+        assert_eq!(
+            authoritative_role,
+            client.sim.world.resource::<LocalRole>().0,
+            "client private role out of sync with host"
+        );
+    }
+}
