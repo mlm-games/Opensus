@@ -24,8 +24,9 @@ use crate::audio::GameAudio;
 use crate::game::{
     ActiveSabotage, AudioFrameMemory, CriticalAlarmTimer, GameOverSaved, GamePhase, LobbyState,
     LocalControls, MatchConfig, MatchRng, MatchSeed, MeetingCommand, MeetingCommands,
-    PLAYER_COLORS, PendingCues, PendingNetworkStart, RuntimeMode, TaskBoard, build_game_schedule,
-    enter_ingame, exit_ingame, handle_start_match, input_direction, networking, setup_lobby,
+    PLAYER_COLORS, PendingCues, PendingNetworkStart, RuntimeMode, StateRequest, TaskBoard,
+    build_game_schedule, enter_ingame, exit_ingame, handle_start_match, input_direction,
+    networking, setup_lobby,
 };
 use crate::render::{RenderState, sync_world_render};
 use crate::save::{SAVE_VERSION, SaveData};
@@ -318,6 +319,7 @@ impl App {
         sim.world.init_resource::<UiActions>();
         sim.world.init_resource::<RuntimeMode>();
         sim.world.init_resource::<PendingNetworkStart>();
+        sim.world.init_resource::<StateRequest>();
         networking::init_resources(&mut sim.world);
         sim.world.init_resource::<MatchConfig>();
         sim.world.init_resource::<LobbyState>();
@@ -381,6 +383,15 @@ impl App {
             .world
             .resource_mut::<TransitionFx>()
             .step_secs(dt_secs);
+        let requested = {
+            let mut request = self.sim.world.resource_mut::<StateRequest>();
+            request.0.take()
+        };
+        if let Some(next) = requested
+            && self.pending_state.is_none()
+        {
+            self.pending_state = Some(next);
+        }
         if self.sim.world.resource::<TransitionFx>().alpha() >= 1.0
             && let Some(next) = self.pending_state.take()
         {

@@ -41,6 +41,7 @@ use rand::rngs::StdRng;
 use repose_core::Color;
 use serde::{Deserialize, Serialize};
 
+use crate::app::AppState;
 use crate::save::SaveData;
 
 pub const PLAYER_COLORS: [Color; 12] = [
@@ -88,6 +89,10 @@ pub enum PendingNetworkStart {
         server_addr: String,
     },
 }
+
+/// State transition requested by a sim system; consumed by `App::advance`.
+#[derive(Resource, Default)]
+pub struct StateRequest(pub Option<AppState>);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum WinReason {

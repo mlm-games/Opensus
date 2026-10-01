@@ -10,6 +10,8 @@ mod channels;
 #[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
 mod cleanup;
 #[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
+mod client;
+#[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
 mod common;
 #[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
 mod host;
@@ -64,6 +66,7 @@ pub fn pre_frame(_world: &mut World, _dt: Duration) {}
 #[cfg(all(feature = "networking-native", not(target_arch = "wasm32")))]
 pub fn post_frame(world: &mut World) {
     transport::flush(world);
+    client::interpolate_replicas(world);
 }
 
 #[cfg(not(all(feature = "networking-native", not(target_arch = "wasm32"))))]
@@ -102,8 +105,13 @@ pub fn reset_match_state(_world: &mut World) {}
 pub fn register_schedule(schedule: &mut Schedule) {
     use super::{
         GameSimSet, ResolveStep, RuntimeMode, ai_brain, apply_authority_chat, capture_chat_text,
-        gameplay_active, has_authority,
+        gameplay_active, has_authority, local_intent_and_move, read_local_action_edges,
     };
+    use bevy_ecs::schedule::ApplyDeferred;
+
+    fn remote_client(mode: Res<RuntimeMode>) -> bool {
+        mode.is_remote_client()
+    }
 
     schedule.configure_sets(
         GameSimSet::Receive
@@ -114,16 +122,61 @@ pub fn register_schedule(schedule: &mut Schedule) {
     schedule.add_systems(
         (
             host::host_handle_connects_and_disconnects,
+            client::client_send_hello_once,
+            client::client_send_ready,
             host::host_receive_reliable_packets,
             host::host_receive_input_packets,
+            client::client_receive_reliable,
+            client::client_receive_snapshots,
         )
             .chain()
             .in_set(GameSimSet::Receive),
     );
     schedule.add_systems(
+        ApplyDeferred
+            .after(GameSimSet::Receive)
+            .before(GameSimSet::Input),
+    );
+    schedule.add_systems(
+        client::reconcile_local_prediction
+            .in_set(GameSimSet::Input)
+            .run_if(gameplay_active)
+            .run_if(remote_client)
+            .before(local_intent_and_move),
+    );
+    schedule.add_systems(
+        client::predict_local_player
+            .in_set(GameSimSet::Input)
+            .run_if(gameplay_active)
+            .run_if(remote_client)
+            .after(local_intent_and_move),
+    );
+    schedule.add_systems(
+        client::client_send_input_packets
+            .in_set(GameSimSet::Input)
+            .run_if(gameplay_active)
+            .run_if(remote_client)
+            .after(client::predict_local_player),
+    );
+    schedule.add_systems(
+        client::client_send_actions
+            .in_set(GameSimSet::Input)
+            .run_if(gameplay_active)
+            .run_if(remote_client)
+            .after(read_local_action_edges),
+    );
+    schedule.add_systems(
         host::host_relay_local_chat
             .in_set(GameSimSet::Input)
             .run_if(gameplay_active)
+            .after(capture_chat_text)
+            .before(apply_authority_chat),
+    );
+    schedule.add_systems(
+        client::client_send_chat
+            .in_set(GameSimSet::Input)
+            .run_if(gameplay_active)
+            .run_if(remote_client)
             .after(capture_chat_text)
             .before(apply_authority_chat),
     );
