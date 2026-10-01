@@ -18,7 +18,8 @@ struct ActorPose {
     position: Vec2,
     bob: f32,
     lean: f32,
-    squash: f32,
+    squash_x: f32,
+    squash_y: f32,
     facing: f32,
     color_index: u8,
     name: String,
@@ -44,6 +45,7 @@ pub(crate) fn push_actors(
     dt: f32,
     items: &mut Vec<DrawItem>,
 ) {
+    state.anim_time += dt;
     let mut layers: Vec<(f32, Vec<DrawItem>)> = Vec::new();
 
     let mut query = world.query::<(&Body, &Position)>();
@@ -73,20 +75,30 @@ pub(crate) fn push_actors(
     let mut seen: HashSet<u64> = HashSet::new();
     for (player, position, ghost, intent) in query.iter(world) {
         let movement = intent.map(|intent| intent.movement).unwrap_or(Vec2::ZERO);
-        let moving = movement.length().clamp(0.0, 1.0);
+        let blend_target = movement.length().clamp(0.0, 1.0);
         let anim = state.walk.entry(player.id).or_default();
-        anim.blend += (moving - anim.blend) * (1.0 - (-14.0 * dt).exp());
-        anim.phase += dt * (8.5 + moving * 2.5) * moving;
+        anim.blend += (blend_target - anim.blend) * (1.0 - (-14.0 * dt).exp());
+        anim.phase += dt * (8.5 + blend_target * 2.5) * blend_target;
         if movement.x.abs() >= 0.01 {
             anim.facing = if movement.x >= 0.0 { 1.0 } else { -1.0 };
         }
         let step = anim.phase.sin();
         seen.insert(player.id);
+        // Legacy split: player_bob_and_y_sort owned layer y/scale.y, animate_player_layers owned rotation/scale.x.
+        let moving = movement.length_squared() > 0.01;
+        let t = state.anim_time * if moving { 13.5 } else { 2.0 };
+        let bob = if moving {
+            t.sin().abs() * 2.2
+        } else {
+            t.sin() * 0.25
+        };
+        let squash_y = if moving { 1.0 + t.sin() * 0.025 } else { 1.0 };
         poses.push(ActorPose {
             position: position.0,
-            bob: step.abs() * 2.4 * anim.blend,
+            bob,
             lean: step * 0.025 * anim.blend,
-            squash: step.abs() * 0.035 * anim.blend,
+            squash_x: step.abs() * 0.035 * anim.blend,
+            squash_y,
             facing: anim.facing,
             color_index: player.color_index,
             name: player.name.clone(),
@@ -99,8 +111,8 @@ pub(crate) fn push_actors(
         let alpha = if pose.ghost { 0.35 } else { 1.0 };
         let body_center = pose.position + Vec2::new(0.0, pose.bob);
         let size = Vec2::new(
-            CHARACTER_HEIGHT * 0.75 * (1.0 - pose.squash * 0.35),
-            CHARACTER_HEIGHT * (1.0 + pose.squash),
+            CHARACTER_HEIGHT * 0.75 * (1.0 - pose.squash_x * 0.35),
+            CHARACTER_HEIGHT * pose.squash_y,
         );
         let color_index = pose.color_index as usize % PLAYER_COLORS.len();
         let tint = Color::WHITE.with_alpha_f32(alpha);

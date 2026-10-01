@@ -60,6 +60,7 @@ pub struct WorldRender {
 pub struct RenderState {
     pub camera: Vec2,
     shake_time: f32,
+    anim_time: f32,
     walk: HashMap<u64, WalkAnim>,
 }
 
@@ -88,6 +89,7 @@ pub fn sync_world_render(
     if *world.resource::<AppState>() != AppState::InGame {
         state.walk.clear();
         state.shake_time = 0.0;
+        state.anim_time = 0.0;
         return WorldRender::default();
     }
     let dt = dt.as_secs_f32();
@@ -434,6 +436,60 @@ mod tests {
     }
 
     #[test]
+    fn walk_bob_matches_legacy_player_bob() {
+        let player_color = PLAYER_COLORS[3].with_alpha_f32(1.0);
+        let dt = Duration::from_millis(16).as_secs_f32();
+        let pose_rect = |movement: Vec2| {
+            let mut world = World::new();
+            world.insert_resource(AppState::InGame);
+            local_player(&mut world, Vec2::new(10.0, 20.0), movement);
+            let mut state = RenderState::default();
+            let render = sync_world_render(
+                &mut world,
+                &mut state,
+                &GameImages::default(),
+                Duration::from_millis(16),
+            );
+            render
+                .items
+                .iter()
+                .find_map(|item| match item {
+                    DrawItem::Rect {
+                        center,
+                        color,
+                        size,
+                        ..
+                    } if *color == player_color => Some((*center, *size)),
+                    _ => None,
+                })
+                .expect("player rect")
+        };
+
+        let (center, size) = pose_rect(Vec2::ZERO);
+        let idle_bob = (dt * 2.0).sin() * 0.25;
+        assert!(
+            (center.y - (20.0 + idle_bob)).abs() < 1e-5,
+            "idle bob y {}",
+            center.y
+        );
+        assert!((size.y - 56.0).abs() < 1e-5, "idle squash y {}", size.y);
+
+        let (center, size) = pose_rect(Vec2::X);
+        let t = dt * 13.5;
+        assert!(
+            (center.y - (20.0 + t.sin().abs() * 2.2)).abs() < 1e-5,
+            "moving bob y {}",
+            center.y
+        );
+        let moving_size = 56.0 * (1.0 + t.sin() * 0.025);
+        assert!(
+            (size.y - moving_size).abs() < 1e-4,
+            "moving squash y {}",
+            size.y
+        );
+    }
+
+    #[test]
     fn corpses_draw_over_fixtures_and_interleave_with_players_by_y() {
         let corpse_color = rgba(0.55, 0.1, 0.12, 0.95);
         let player_color = PLAYER_COLORS[3].with_alpha_f32(1.0);
@@ -499,10 +555,9 @@ mod tests {
             let player = render
                 .items
                 .iter()
-                .position(|item| {
-                    matches!(item, DrawItem::Rect { center, color, .. }
-                    if *center == Vec2::new(100.0, 100.0) && *color == player_color)
-                })
+                .position(
+                    |item| matches!(item, DrawItem::Rect { color, .. } if *color == player_color),
+                )
                 .expect("player item");
             let corpse = render
                 .items
