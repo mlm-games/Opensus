@@ -12,7 +12,7 @@ use repame_shell::{
     SharedEdges, Staging, install_game_shortcuts, shared_edges, take_shortcut_edges,
 };
 use repame_sim::Sim;
-use repose_core::input::PhysicalKey;
+use repose_core::input::{Key, KeyEvent, KeyEventType, PhysicalKey};
 use repose_core::prelude::Modifier;
 use repose_core::{FocusRequester, RenderContext, Scheduler, View, remember, request_frame};
 use repose_ui::overlay::OverlayHandle;
@@ -294,6 +294,7 @@ pub struct App {
     schedule: Schedule,
     pending_state: Option<AppState>,
     staging: Rc<RefCell<Staging>>,
+    chat_keys: Rc<RefCell<Vec<KeyEvent>>>,
     shortcut_edges: SharedEdges,
     ui: SharedUi,
     render: RenderState,
@@ -333,6 +334,10 @@ impl App {
         sim.world.init_resource::<crate::game::ReportBodies>();
         sim.world.init_resource::<GameOverSaved>();
         sim.world.init_resource::<crate::game::LocalPrompt>();
+        sim.world.init_resource::<crate::game::ChatState>();
+        sim.world.init_resource::<crate::game::ChatInputBuffer>();
+        sim.world.init_resource::<crate::game::OutgoingChat>();
+        sim.world.init_resource::<crate::game::ChatKeys>();
         sim.world.init_resource::<LocalControls>();
         sim.world.init_resource::<PendingCues>();
         sim.world.init_resource::<AudioFrameMemory>();
@@ -353,6 +358,7 @@ impl App {
             schedule: build_game_schedule(),
             pending_state: None,
             staging: Staging::shared(),
+            chat_keys: Rc::new(RefCell::new(Vec::new())),
             shortcut_edges: shared_edges(),
             ui: SharedUi::default(),
             render: RenderState::default(),
@@ -438,6 +444,17 @@ impl App {
             direction,
             interact,
         });
+        let chat_events = std::mem::take(&mut *self.chat_keys.borrow_mut());
+        if state == AppState::InGame
+            && matches!(phase, GamePhase::Meeting | GamePhase::Voting)
+            && !chat_events.is_empty()
+        {
+            self.sim
+                .world
+                .resource_mut::<crate::game::ChatKeys>()
+                .0
+                .extend(chat_events);
+        }
         let mut edges = self.sim.world.resource_mut::<InputEdges>();
         edges.pause = pause && !blocked;
         if playing {
@@ -707,6 +724,12 @@ impl App {
         let focus_positioned = (*focus).clone();
         let focus_staging = self.staging.clone();
         let key_staging = self.staging.clone();
+        let chat_keys = self.chat_keys.clone();
+        let chat_open = *self.sim.world.resource::<AppState>() == AppState::InGame
+            && matches!(
+                *self.sim.world.resource::<GamePhase>(),
+                GamePhase::Meeting | GamePhase::Voting
+            );
         let actions = self.sim.world.resource::<UiActions>().0.clone();
         let content = compose_root(self.ui.clone(), actions);
         let root = ZStack(
@@ -720,6 +743,16 @@ impl App {
                 })
                 .on_key_event(move |ke| {
                     key_staging.borrow_mut().handle_key(&ke);
+                    if chat_open
+                        && matches!(ke.event_type, KeyEventType::Down)
+                        && matches!(
+                            ke.key,
+                            Key::Enter | Key::Backspace | Key::Space | Key::Character(_)
+                        )
+                    {
+                        chat_keys.borrow_mut().push(ke);
+                        return true;
+                    }
                     false
                 }),
         )
@@ -1848,5 +1881,118 @@ mod tests {
             .insert_resource(crate::game::Trauma { value: 0.5 });
         advance_for(&mut app, 1000);
         assert_eq!(app.sim.world.resource::<crate::game::Trauma>().value, 0.0);
+    }
+
+    fn chat_key(key: Key) -> KeyEvent {
+        KeyEvent {
+            key,
+            modifiers: repose_core::input::Modifiers::default(),
+            is_repeat: false,
+            event_type: KeyEventType::Down,
+            utf16_code_point: 0,
+            physical: None,
+        }
+    }
+
+    #[test]
+    fn chat_capture_apply_cue_and_ghost_channel() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        advance_for(&mut app, 3100);
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Playing
+        ));
+
+        app.chat_keys
+            .borrow_mut()
+            .push(chat_key(Key::Character('x')));
+        app.feed_input();
+        assert!(
+            app.sim
+                .world
+                .resource::<crate::game::ChatKeys>()
+                .0
+                .is_empty()
+        );
+
+        let local = local_entity(&mut app);
+        app.sim
+            .world
+            .entity_mut(local)
+            .insert(crate::game::EmergencyCooldownLeft(0.0));
+        set_local_position(&mut app, crate::game::EMERGENCY_BUTTON_POSITION);
+        app.sim.world.insert_resource(InputEdges {
+            emergency: true,
+            ..Default::default()
+        });
+        app.advance(Duration::from_millis(50));
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Meeting
+        ));
+
+        app.chat_keys
+            .borrow_mut()
+            .extend([chat_key(Key::Character('h')), chat_key(Key::Character('i'))]);
+        app.feed_input();
+        advance_for(&mut app, 300);
+        assert!(
+            app.sim
+                .world
+                .resource::<crate::game::ChatState>()
+                .entries
+                .is_empty()
+        );
+        assert_eq!(
+            app.sim.world.resource::<crate::game::ChatInputBuffer>().0,
+            "hi"
+        );
+        sync_shared_ui(&mut app.sim.world, &mut app.ui);
+        assert_eq!(app.ui.chat_buffer, "hi");
+        assert!(app.ui.chat_entries.is_empty());
+
+        app.chat_keys.borrow_mut().push(chat_key(Key::Enter));
+        app.feed_input();
+        advance_for(&mut app, 300);
+        {
+            let chat = app.sim.world.resource::<crate::game::ChatState>();
+            assert_eq!(chat.entries.len(), 1);
+            assert_eq!(chat.entries[0].text, "hi");
+            assert!(!chat.entries[0].ghost);
+        }
+        assert!(
+            app.sim
+                .world
+                .resource::<crate::game::ChatInputBuffer>()
+                .0
+                .is_empty()
+        );
+        assert!(app.sim.world.resource::<PendingCues>().0.contains(&"chat"));
+        sync_shared_ui(&mut app.sim.world, &mut app.ui);
+        assert_eq!(app.ui.chat_entries.len(), 1);
+        assert_eq!(app.ui.chat_entries[0].1, "hi");
+        assert!(!app.ui.chat_is_ghost_channel);
+
+        app.sim
+            .world
+            .entity_mut(local)
+            .remove::<crate::game::Alive>();
+        app.sim.world.entity_mut(local).insert(crate::game::Ghost);
+        app.chat_keys.borrow_mut().extend([
+            chat_key(Key::Character('b')),
+            chat_key(Key::Character('y')),
+            chat_key(Key::Enter),
+        ]);
+        app.feed_input();
+        advance_for(&mut app, 300);
+        {
+            let chat = app.sim.world.resource::<crate::game::ChatState>();
+            assert_eq!(chat.entries.len(), 2);
+            assert!(chat.entries[1].ghost);
+        }
+        sync_shared_ui(&mut app.sim.world, &mut app.ui);
+        assert!(app.ui.chat_is_ghost_channel);
+        assert_eq!(app.ui.chat_entries.len(), 2);
     }
 }

@@ -1,7 +1,8 @@
 use bevy_ecs::prelude::*;
 
 use super::{
-    ActiveSabotage, Body, GamePhase, MeetingState, SabotageKind, SimTimer, TaskBoard, TimerMode,
+    ActiveSabotage, Body, ChatState, GamePhase, MeetingState, SabotageKind, SimTimer, TaskBoard,
+    TimerMode,
 };
 
 const CRITICAL_ALARM_SECS: f32 = 0.72;
@@ -72,6 +73,12 @@ pub const TONE_CUES: &[ToneCue] = &[
         gain: 0.55,
     },
     ToneCue {
+        name: "chat",
+        freq: 980.0,
+        millis: 55,
+        gain: 0.45,
+    },
+    ToneCue {
         name: "sabotage_start",
         freq: 240.0,
         millis: 420,
@@ -122,6 +129,7 @@ pub struct AudioFrameMemory {
     votes_len: usize,
     local_voted: bool,
     sabotage_kind: Option<SabotageKind>,
+    chat_len: usize,
 }
 
 pub fn reset_audio_locals(world: &mut World) {
@@ -132,6 +140,7 @@ pub fn reset_audio_locals(world: &mut World) {
         (meeting.votes.len(), meeting.local_voted)
     };
     let sabotage_kind = world.resource::<ActiveSabotage>().kind;
+    let chat_len = world.resource::<ChatState>().entries.len();
     {
         let mut memory = world.resource_mut::<AudioFrameMemory>();
         memory.phase = Some(phase);
@@ -139,6 +148,7 @@ pub fn reset_audio_locals(world: &mut World) {
         memory.votes_len = votes_len;
         memory.local_voted = local_voted;
         memory.sabotage_kind = sabotage_kind;
+        memory.chat_len = chat_len;
     }
     world.resource_mut::<CriticalAlarmTimer>().0 =
         SimTimer::from_seconds(CRITICAL_ALARM_SECS, TimerMode::Repeating);
@@ -208,6 +218,18 @@ pub fn play_vote_confirm_cue(
 
     memory.votes_len = votes_len;
     memory.local_voted = local_voted;
+}
+
+pub fn play_chat_cue(
+    chat: Res<ChatState>,
+    mut memory: ResMut<AudioFrameMemory>,
+    mut pending: ResMut<PendingCues>,
+) {
+    let len = chat.entries.len();
+    if len > memory.chat_len {
+        pending.0.push("chat");
+    }
+    memory.chat_len = len;
 }
 
 pub fn play_sabotage_cues(

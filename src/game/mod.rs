@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod chat;
 pub mod collision;
 pub mod interaction;
 pub mod kill;
@@ -15,6 +16,7 @@ pub mod timer;
 pub mod vents;
 
 pub use audio::*;
+pub use chat::*;
 pub use collision::*;
 pub use interaction::*;
 pub use kill::*;
@@ -386,6 +388,7 @@ fn setup_match(world: &mut World) {
 }
 
 pub fn enter_ingame(world: &mut World) {
+    reset_chat(world);
     reset_audio_locals(world);
     setup_match(world);
     spawn_map(world);
@@ -410,6 +413,7 @@ pub fn exit_ingame(world: &mut World) {
     if let Some(mut cooldown) = world.get_resource_mut::<SabotageCooldown>() {
         cooldown.remaining = 0.0;
     }
+    reset_chat(world);
 }
 
 fn cleanup_bodies_on_meeting(

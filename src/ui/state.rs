@@ -9,9 +9,9 @@ use repose_core::ImageHandle;
 
 use crate::app::{AppState, LOADING_SECS, LoadingTimer, OverlayMenu, Paused};
 use crate::game::{
-    ActiveSabotage, Alive, EmergenciesLeft, GamePhase, KillCooldownLeft, LobbySlot, LobbyState,
-    LocalPlayer, LocalPrompt, LocalRole, MatchConfig, MeetingState, Player, Role, RoleRevealTimer,
-    SabotageKind, TaskBoard,
+    ActiveSabotage, Alive, ChatInputBuffer, ChatState, EmergenciesLeft, GamePhase,
+    KillCooldownLeft, LobbySlot, LobbyState, LocalPlayer, LocalPrompt, LocalRole, MatchConfig,
+    MeetingState, Player, Role, RoleRevealTimer, SabotageKind, TaskBoard,
 };
 use crate::render::WorldRender;
 use crate::save::SaveData;
@@ -246,4 +246,17 @@ fn sync_game_fields(world: &mut World, ui: &mut SharedUi) {
         ui.emergencies_left = 0;
         ui.local_alive = false;
     }
+    ui.chat_entries.clear();
+    let viewer_is_ghost = !ui.local_alive;
+    {
+        let chat = world.resource::<ChatState>();
+        let filtered: Vec<_> = chat.visible_to(viewer_is_ghost).collect();
+        let start = filtered.len().saturating_sub(8);
+        for entry in &filtered[start..] {
+            ui.chat_entries
+                .push((entry.name.clone(), entry.text.clone(), entry.ghost));
+        }
+    }
+    ui.chat_is_ghost_channel = viewer_is_ghost;
+    ui.chat_buffer = world.resource::<ChatInputBuffer>().0.clone();
 }

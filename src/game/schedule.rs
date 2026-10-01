@@ -3,10 +3,11 @@ use bevy_ecs::schedule::{ApplyDeferred, Schedule};
 use repame_fx::TransitionFx;
 
 use super::{
-    GamePhase, RuntimeMode, ai_brain, ai_ghost_brain, apply_intent_movement, apply_pending_eject,
-    apply_sabotage, check_sabotage_loss, check_win_conditions, cleanup_bodies_on_meeting,
-    cleanup_on_game_over_enter, clear_fixed_sabotage, do_kill, do_report, ensure_bot_votes,
-    handle_meeting_commands, local_intent_and_move, play_body_spawn_cue, play_critical_alarm,
+    GamePhase, RuntimeMode, ai_brain, ai_ghost_brain, apply_authority_chat, apply_intent_movement,
+    apply_pending_eject, apply_sabotage, capture_chat_text, check_sabotage_loss,
+    check_win_conditions, cleanup_bodies_on_meeting, cleanup_on_game_over_enter,
+    clear_fixed_sabotage, do_kill, do_report, ensure_bot_votes, handle_meeting_commands,
+    local_intent_and_move, play_body_spawn_cue, play_chat_cue, play_critical_alarm,
     play_phase_cues, play_sabotage_cues, play_task_complete_cue, play_vote_confirm_cue,
     process_interactions, read_local_action_edges, read_local_sabotage_edges,
     reset_cooldowns_after_meeting, tick_emergency_cooldowns, tick_kill_cds, tick_phase_timers,
@@ -50,6 +51,10 @@ pub fn in_playing(phase: Res<GamePhase>) -> bool {
 
 pub fn has_authority(mode: Res<RuntimeMode>) -> bool {
     mode.has_authority()
+}
+
+pub fn chat_open(phase: Res<GamePhase>) -> bool {
+    matches!(*phase, GamePhase::Meeting | GamePhase::Voting)
 }
 
 /// In a running match, not paused, not mid-transition.
@@ -102,6 +107,13 @@ pub fn build_game_schedule() -> Schedule {
                 .run_if(in_playing)
                 .run_if(has_authority),
             read_local_sabotage_edges
+                .in_set(GameSimSet::Input)
+                .run_if(gameplay_active),
+            (
+                capture_chat_text.run_if(chat_open),
+                apply_authority_chat.run_if(has_authority),
+            )
+                .chain()
                 .in_set(GameSimSet::Input)
                 .run_if(gameplay_active),
         )
@@ -168,6 +180,7 @@ pub fn build_game_schedule() -> Schedule {
         (
             play_phase_cues,
             play_body_spawn_cue,
+            play_chat_cue,
             play_task_complete_cue,
             play_vote_confirm_cue,
             play_sabotage_cues,

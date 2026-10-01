@@ -15,7 +15,10 @@ use repose_core::{
 use repose_text::shape_line_cached;
 
 use crate::app::AppState;
-use crate::assets::GameImages;
+use crate::assets::{GameImages, MASK_WORLD_SIZE};
+use crate::game::{
+    ActiveSabotage, GamePhase, Ghost, LocalPlayer, LocalRole, Position, Role, SabotageKind,
+};
 
 pub enum DrawItem {
     Rect {
@@ -94,6 +97,7 @@ pub fn sync_world_render(
     actors::push_corpses(world, images, &colors, &mut items);
     map::push_map_fixtures(world, images, &mut items);
     actors::push_players(world, images, state, dt, &mut items);
+    push_vision_mask(world, images, &mut items);
     actors::follow_camera(world, state, dt);
     state.shake_time += dt;
     let trauma = world
@@ -104,6 +108,41 @@ pub fn sync_world_render(
         camera: state.camera + shake,
         items: items.into(),
     }
+}
+
+fn push_vision_mask(world: &mut World, images: &GameImages, items: &mut Vec<DrawItem>) {
+    if !matches!(world.get_resource::<GamePhase>(), Some(GamePhase::Playing)) {
+        return;
+    }
+    let role = world.get_resource::<LocalRole>().and_then(|role| role.0);
+    let lights = world
+        .get_resource::<ActiveSabotage>()
+        .is_some_and(|sabotage| sabotage.kind == Some(SabotageKind::Lights));
+    let mut query = world.query_filtered::<(&Position, Option<&Ghost>), With<LocalPlayer>>();
+    let Ok((position, ghost)) = query.single(world) else {
+        return;
+    };
+    if ghost.is_some() {
+        return;
+    }
+    let handle = match role {
+        Some(Role::Impostor) => images.vision_impostor,
+        Some(Role::Crewmate) if lights => images.vision_lights,
+        _ => images.vision_crew,
+    };
+    let Some(handle) = handle else {
+        return;
+    };
+    push_image(
+        items,
+        position.0,
+        Vec2::splat(MASK_WORLD_SIZE),
+        handle,
+        Color::WHITE,
+        0.0,
+        false,
+        ImageFilter::Linear,
+    );
 }
 
 pub fn draw_world(scope: &mut DrawScope, render: &WorldRender) {
@@ -616,5 +655,75 @@ mod tests {
         assert!(fixed.items.iter().any(|item| matches!(item,
                 DrawItem::Rect { center, color, .. }
                 if *center == OXYGEN_STATIONS[0] && *color == rgba(0.45, 0.75, 0.5, 0.9))));
+    }
+
+    #[test]
+    fn vision_mask_tracks_role_lights_and_phase() {
+        let mut world = World::new();
+        world.insert_resource(AppState::InGame);
+        world.insert_resource(GamePhase::Playing);
+        world.insert_resource(LocalRole(Some(Role::Crewmate)));
+        local_player(&mut world, Vec2::new(40.0, -20.0), Vec2::ZERO);
+        let images = GameImages {
+            vision_crew: Some(21),
+            vision_lights: Some(22),
+            vision_impostor: Some(23),
+            ..Default::default()
+        };
+        let mut state = RenderState::default();
+
+        let crew = sync_world_render(&mut world, &mut state, &images, Duration::from_millis(16));
+        assert!(crew.items.iter().any(|item| matches!(item,
+                DrawItem::Image { handle: 21, center, size, filter, .. }
+                if *center == Vec2::new(40.0, -20.0)
+                    && *size == Vec2::splat(1800.0)
+                    && *filter == ImageFilter::Linear)));
+
+        world.insert_resource(ActiveSabotage {
+            kind: Some(SabotageKind::Lights),
+            ..Default::default()
+        });
+        let lights = sync_world_render(&mut world, &mut state, &images, Duration::from_millis(16));
+        assert!(
+            lights
+                .items
+                .iter()
+                .any(|item| matches!(item, DrawItem::Image { handle: 22, .. }))
+        );
+
+        world.insert_resource(LocalRole(Some(Role::Impostor)));
+        let impostor =
+            sync_world_render(&mut world, &mut state, &images, Duration::from_millis(16));
+        assert!(
+            impostor
+                .items
+                .iter()
+                .any(|item| matches!(item, DrawItem::Image { handle: 23, .. }))
+        );
+
+        let local = {
+            let mut q = world.query_filtered::<Entity, With<LocalPlayer>>();
+            q.single(&world).unwrap()
+        };
+        world.entity_mut(local).insert(Ghost);
+        let ghost = sync_world_render(&mut world, &mut state, &images, Duration::from_millis(16));
+        assert!(!ghost.items.iter().any(|item| matches!(
+            item,
+            DrawItem::Image {
+                handle: 21..=23,
+                ..
+            }
+        )));
+
+        world.entity_mut(local).remove::<Ghost>();
+        world.insert_resource(GamePhase::Meeting);
+        let meeting = sync_world_render(&mut world, &mut state, &images, Duration::from_millis(16));
+        assert!(!meeting.items.iter().any(|item| matches!(
+            item,
+            DrawItem::Image {
+                handle: 21..=23,
+                ..
+            }
+        )));
     }
 }
