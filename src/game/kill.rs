@@ -6,7 +6,7 @@ use glam::Vec2;
 use super::{
     Alive, Body, GamePhase, Ghost, KillCooldownLeft, LocalPlayer, MatchCleanup, MatchConfig,
     MeetingCommand, MeetingCommands, MeetingState, Player, Position, Role, SolidAabb, TaskBoard,
-    make_ghost,
+    Trauma, make_ghost,
 };
 use crate::app::InputEdges;
 use crate::save::SaveData;
@@ -84,6 +84,7 @@ pub fn do_kill(
     tasks: Res<TaskBoard>,
     stats: Res<super::MatchStats>,
     mut save: ResMut<SaveData>,
+    mut trauma: ResMut<Trauma>,
     mut actors: Query<(&Position, &Role, &Player, &mut KillCooldownLeft), With<Alive>>,
     targets: Query<(Entity, &Player, &Position, &Role), With<Alive>>,
     solids: Query<(&Position, &SolidAabb)>,
@@ -165,6 +166,7 @@ pub fn do_kill(
             },
             Position(body_pos),
         ));
+        trauma.add(0.55);
 
         let mut crew = 0u32;
         let mut imps = 0u32;
@@ -194,6 +196,7 @@ pub fn do_report(
     reporters: Query<(&Player, &Position), With<Alive>>,
     mut bodies: Query<(Entity, &mut Body, &Position)>,
     players: Query<(&Player, Option<&Alive>, Option<&Ghost>)>,
+    mut trauma: ResMut<Trauma>,
 ) {
     let requests = std::mem::take(&mut requests.0);
     for request in requests {
@@ -233,6 +236,7 @@ pub fn do_report(
         }
 
         super::clear_sabotage_world(&mut sabotage, &mut fix_stations);
+        trauma.add(0.4);
 
         meeting.begin_meeting(
             format!("{victim_name}'s body was reported!"),

@@ -3,14 +3,14 @@ use std::collections::HashSet;
 use bevy_ecs::prelude::*;
 use glam::Vec2;
 use rand::RngExt;
-use rand::seq::SliceRandom;
+use rand::seq::{IndexedRandom, SliceRandom};
 
 use super::{
     ActiveSabotage, Alive, Body, EmergenciesLeft, EmergencyButton, EmergencyCooldownLeft,
     GamePhase, Ghost, KillCooldownLeft, KillRequest, KillRequests, LocalRole, MatchCleanup,
-    MatchConfig, MatchRng, MatchStats, Position, ReportBodies, ReportBody, Role,
-    SabotageFixContribution, SabotageFixStation, SimTimer, SolidAabb, TaskAssignments, TaskStation,
-    TimerMode, deterministic_task_ids,
+    MatchConfig, MatchRng, MatchStats, Position, ReportBodies, ReportBody, Role, SabotageCooldown,
+    SabotageFixContribution, SabotageFixStation, SabotageRequests, SimTimer, SolidAabb,
+    TaskAssignments, TaskStation, TimerMode, deterministic_task_ids,
 };
 use crate::save::SaveData;
 
@@ -339,8 +339,12 @@ pub fn ai_brain(
     phase: Res<GamePhase>,
     mut kill_tx: ResMut<KillRequests>,
     mut report_tx: ResMut<ReportBodies>,
+    mut sabo_tx: ResMut<SabotageRequests>,
+    sabotage: Res<ActiveSabotage>,
+    cooldown: Res<SabotageCooldown>,
     mut match_rng: ResMut<MatchRng>,
     tasks: Query<(Entity, &Position, &TaskStation)>,
+    fix_stations: Query<(&SabotageFixStation, &Position)>,
     bodies: Query<(&Position, &Body)>,
     solids: Query<(&Position, &SolidAabb), Without<Player>>,
     mut ais: Query<
@@ -395,6 +399,51 @@ pub fn ai_brain(
                 kill_tx.0.push(KillRequest {
                     actor_id: player.id,
                 });
+            }
+        }
+
+        if matches!(role, Role::Impostor)
+            && !sabotage.is_active()
+            && cooldown.remaining <= 0.0
+            && ai.action.just_finished()
+            && rng.random::<f32>() < 0.08
+        {
+            let kind = *[
+                super::SabotageKind::Lights,
+                super::SabotageKind::Oxygen,
+                super::SabotageKind::Reactor,
+            ]
+            .choose(rng)
+            .unwrap();
+            sabo_tx.0.push(super::SabotageRequest {
+                actor_id: player.id,
+                kind,
+            });
+        }
+
+        if matches!(role, Role::Crewmate)
+            && let Some(kind) = sabotage.kind
+        {
+            let mut best: Option<(f32, Vec2)> = None;
+            for (station, station_position) in &fix_stations {
+                if station.kind != kind || station.progress >= 1.0 {
+                    continue;
+                }
+                let d = pos.distance(station_position.0);
+                if best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, station_position.0));
+                }
+            }
+            if let Some((dist, target)) = best {
+                if dist <= cfg.interact_range * 0.85 {
+                    intent.movement = Vec2::ZERO;
+                    intent.interact = true;
+                } else {
+                    let wp = super::navigation::next_waypoint(pos, target, &boxes);
+                    intent.movement = (wp - pos).normalize_or_zero();
+                    intent.interact = false;
+                }
+                continue;
             }
         }
 

@@ -4,12 +4,13 @@ use repame_fx::TransitionFx;
 
 use super::{
     GamePhase, RuntimeMode, ai_brain, ai_ghost_brain, apply_intent_movement, apply_pending_eject,
-    check_win_conditions, cleanup_bodies_on_meeting, cleanup_on_game_over_enter, do_kill,
-    do_report, ensure_bot_votes, handle_meeting_commands, local_intent_and_move,
-    play_body_spawn_cue, play_critical_alarm, play_phase_cues, play_sabotage_cues,
-    play_task_complete_cue, play_vote_confirm_cue, process_interactions, read_local_action_edges,
+    apply_sabotage, check_sabotage_loss, check_win_conditions, cleanup_bodies_on_meeting,
+    cleanup_on_game_over_enter, clear_fixed_sabotage, do_kill, do_report, ensure_bot_votes,
+    handle_meeting_commands, local_intent_and_move, play_body_spawn_cue, play_critical_alarm,
+    play_phase_cues, play_sabotage_cues, play_task_complete_cue, play_vote_confirm_cue,
+    process_interactions, read_local_action_edges, read_local_sabotage_edges,
     reset_cooldowns_after_meeting, tick_emergency_cooldowns, tick_kill_cds, tick_phase_timers,
-    update_local_prompt,
+    tick_sabotage, tick_trauma, update_local_prompt,
 };
 use crate::app::{AppState, Paused};
 
@@ -32,6 +33,7 @@ pub enum ResolveStep {
     Ai,       // bot brains + non-local movement (authority)
     Combat,   // kills, reports, emergency meeting commands, kill CD
     Interact, // tasks + sabotage fixes
+    Sabotage,
 }
 
 pub fn in_game(state: Res<AppState>) -> bool {
@@ -73,7 +75,12 @@ pub fn build_game_schedule() -> Schedule {
             .run_if(in_game),
     );
     schedule.configure_sets(
-        (ResolveStep::Ai, ResolveStep::Combat, ResolveStep::Interact)
+        (
+            ResolveStep::Ai,
+            ResolveStep::Combat,
+            ResolveStep::Interact,
+            ResolveStep::Sabotage,
+        )
             .chain()
             .in_set(GameSimSet::Resolve),
     );
@@ -94,6 +101,9 @@ pub fn build_game_schedule() -> Schedule {
                 .run_if(not_paused)
                 .run_if(in_playing)
                 .run_if(has_authority),
+            read_local_sabotage_edges
+                .in_set(GameSimSet::Input)
+                .run_if(gameplay_active),
         )
             .chain(),
     );
@@ -114,6 +124,14 @@ pub fn build_game_schedule() -> Schedule {
             process_interactions
                 .in_set(ResolveStep::Interact)
                 .run_if(in_playing),
+            (
+                apply_sabotage,
+                tick_sabotage,
+                check_sabotage_loss,
+                clear_fixed_sabotage,
+            )
+                .chain()
+                .in_set(ResolveStep::Sabotage),
         )
             .chain()
             .run_if(gameplay_active)
@@ -128,6 +146,7 @@ pub fn build_game_schedule() -> Schedule {
             tick_phase_timers,
             apply_pending_eject, // same frame Results starts
             reset_cooldowns_after_meeting,
+            tick_trauma,
         )
             .chain()
             .in_set(GameSimSet::Phase)

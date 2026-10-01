@@ -8,7 +8,7 @@ use rand::seq::IndexedRandom;
 use super::{
     ActiveSabotage, AiPlayer, Alive, EmergenciesLeft, EmergencyButton, EmergencyCooldownLeft,
     GamePhase, Ghost, LocalPlayerId, MatchConfig, MeetingCommand, MeetingCommands, Player,
-    Position, SimTimer, TimerMode, clear_sabotage_world,
+    Position, SimTimer, TimerMode, Trauma, clear_sabotage_world,
 };
 
 #[derive(Clone, Debug)]
@@ -149,6 +149,7 @@ pub fn handle_meeting_commands(
     positions: Query<(&Player, &Position), With<Alive>>,
     local_id: Res<LocalPlayerId>,
     emergency_buttons: Query<&Position, With<EmergencyButton>>,
+    mut trauma: ResMut<Trauma>,
 ) {
     let commands = std::mem::take(&mut queue.0);
     for cmd in commands {
@@ -176,6 +177,7 @@ pub fn handle_meeting_commands(
                     continue;
                 }
                 left.0 -= 1;
+                trauma.add(0.35);
 
                 if !sabotage.is_critical() {
                     clear_sabotage_world(&mut sabotage, &mut fix_stations);

@@ -139,6 +139,9 @@ pub struct InputEdges {
     pub kill: bool,
     pub report: bool,
     pub emergency: bool,
+    pub sabotage_lights: bool,
+    pub sabotage_oxygen: bool,
+    pub sabotage_reactor: bool,
 }
 
 #[derive(Resource)]
@@ -263,6 +266,9 @@ fn handle_pause_input(world: &mut World) {
                 edges.kill = false;
                 edges.report = false;
                 edges.emergency = false;
+                edges.sabotage_lights = false;
+                edges.sabotage_oxygen = false;
+                edges.sabotage_reactor = false;
             }
             world.insert_resource(Paused(true));
             world.insert_resource(OverlayMenu::Pause);
@@ -320,6 +326,9 @@ impl App {
         sim.world.init_resource::<crate::game::MatchStats>();
         sim.world.init_resource::<crate::game::RoleRevealTimer>();
         sim.world.init_resource::<ActiveSabotage>();
+        sim.world.init_resource::<crate::game::SabotageCooldown>();
+        sim.world.init_resource::<crate::game::SabotageRequests>();
+        sim.world.init_resource::<crate::game::Trauma>();
         sim.world.init_resource::<crate::game::KillRequests>();
         sim.world.init_resource::<crate::game::ReportBodies>();
         sim.world.init_resource::<GameOverSaved>();
@@ -435,6 +444,9 @@ impl App {
             edges.kill |= key_edges.contains(&PhysicalKey::KeyQ);
             edges.report |= key_edges.contains(&PhysicalKey::KeyR);
             edges.emergency |= key_edges.contains(&PhysicalKey::KeyF);
+            edges.sabotage_lights |= key_edges.contains(&PhysicalKey::Digit1);
+            edges.sabotage_oxygen |= key_edges.contains(&PhysicalKey::Digit2);
+            edges.sabotage_reactor |= key_edges.contains(&PhysicalKey::Digit3);
         }
     }
 
@@ -1407,6 +1419,11 @@ mod tests {
         app.sim.world.insert_resource(MatchSeed(7));
         goto_state(&mut app.sim.world, AppState::InGame);
         app.sim.world.insert_resource(GameOverSaved(true));
+        app.sim
+            .world
+            .insert_resource(crate::game::SabotageCooldown {
+                remaining: f32::MAX,
+            });
         advance_for(&mut app, 3100);
         assert!(matches!(
             *app.sim.world.resource::<GamePhase>(),
@@ -1591,5 +1608,245 @@ mod tests {
         app.advance(Duration::from_millis(50));
         let pending = app.sim.world.resource::<crate::game::PendingCues>();
         assert_eq!(pending.0.iter().filter(|cue| **cue == "body").count(), 1);
+    }
+
+    fn force_all_crew(app: &mut App) {
+        let world = &mut app.sim.world;
+        let mut q = world.query_filtered::<&mut crate::game::Role, With<crate::game::Alive>>();
+        for mut role in q.iter_mut(world) {
+            *role = crate::game::Role::Crewmate;
+        }
+    }
+
+    fn make_local_impostor(app: &mut App) {
+        let local = local_entity(app);
+        force_all_crew(app);
+        app.sim.world.entity_mut(local).insert((
+            crate::game::Role::Impostor,
+            crate::game::KillCooldownLeft(0.0),
+        ));
+    }
+
+    #[test]
+    fn local_impostor_sabotage_activates_with_key_edge() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        advance_for(&mut app, 3100);
+        make_local_impostor(&mut app);
+
+        app.sim.world.insert_resource(InputEdges {
+            sabotage_oxygen: true,
+            ..Default::default()
+        });
+        app.advance(Duration::from_millis(50));
+
+        {
+            let sabotage = app.sim.world.resource::<crate::game::ActiveSabotage>();
+            assert_eq!(sabotage.kind, Some(crate::game::SabotageKind::Oxygen));
+            assert_eq!(sabotage.fixes_needed, 2);
+            assert_eq!(sabotage.fixes_done, 0);
+        }
+        let cooldown = app
+            .sim
+            .world
+            .resource::<crate::game::SabotageCooldown>()
+            .remaining;
+        assert!(cooldown > 19.0, "cooldown {cooldown}");
+        let trauma = app.sim.world.resource::<crate::game::Trauma>().value;
+        assert!(trauma > 0.4, "trauma {trauma}");
+        {
+            let pending = app.sim.world.resource::<crate::game::PendingCues>();
+            assert!(pending.0.contains(&"sabotage_start"));
+        }
+
+        app.sim.world.insert_resource(InputEdges {
+            sabotage_reactor: true,
+            ..Default::default()
+        });
+        app.advance(Duration::from_millis(50));
+        assert_eq!(
+            app.sim.world.resource::<crate::game::ActiveSabotage>().kind,
+            Some(crate::game::SabotageKind::Oxygen)
+        );
+        let trauma_after = app.sim.world.resource::<crate::game::Trauma>().value;
+        assert!(trauma_after < trauma, "{trauma_after} vs {trauma}");
+    }
+
+    #[test]
+    fn crew_cannot_activate_sabotage() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        advance_for(&mut app, 3100);
+        force_all_crew(&mut app);
+
+        app.sim.world.insert_resource(InputEdges {
+            sabotage_lights: true,
+            ..Default::default()
+        });
+        app.advance(Duration::from_millis(50));
+
+        assert!(
+            app.sim
+                .world
+                .resource::<crate::game::ActiveSabotage>()
+                .kind
+                .is_none()
+        );
+        assert_eq!(
+            app.sim
+                .world
+                .resource::<crate::game::SabotageCooldown>()
+                .remaining,
+            0.0
+        );
+        assert_eq!(app.sim.world.resource::<crate::game::Trauma>().value, 0.0);
+    }
+
+    #[test]
+    fn critical_sabotage_timeout_wins_for_impostors() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        advance_for(&mut app, 3100);
+        make_local_impostor(&mut app);
+        app.sim
+            .world
+            .resource_mut::<crate::game::MatchConfig>()
+            .oxygen_time = 0.2;
+
+        app.sim.world.insert_resource(InputEdges {
+            sabotage_oxygen: true,
+            ..Default::default()
+        });
+        app.advance(Duration::from_millis(50));
+        assert!(
+            app.sim
+                .world
+                .resource::<crate::game::ActiveSabotage>()
+                .is_active()
+        );
+
+        let before = app.sim.world.resource::<SaveData>().games_played;
+        let impostor_wins_before = app.sim.world.resource::<SaveData>().impostor_wins;
+        advance_for(&mut app, 500);
+
+        match *app.sim.world.resource::<GamePhase>() {
+            GamePhase::GameOver { crew_win, reason } => {
+                assert!(!crew_win);
+                assert!(matches!(reason, crate::game::WinReason::Sabotage));
+            }
+            other => panic!("expected game over, got {other:?}"),
+        }
+        let save = app.sim.world.resource::<SaveData>();
+        assert_eq!(save.games_played, before + 1);
+        assert_eq!(save.impostor_wins, impostor_wins_before + 1);
+    }
+
+    #[test]
+    fn crew_bots_fix_sabotage_and_prevent_loss() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        advance_for(&mut app, 3100);
+        make_local_impostor(&mut app);
+        {
+            let cfg = &mut *app.sim.world.resource_mut::<crate::game::MatchConfig>();
+            cfg.bot_kill_aggression = 0.0;
+        }
+        app.sim.world.resource_mut::<TaskBoard>().total = 9999;
+
+        app.sim.world.insert_resource(InputEdges {
+            sabotage_oxygen: true,
+            ..Default::default()
+        });
+        app.advance(Duration::from_millis(50));
+        assert!(
+            app.sim
+                .world
+                .resource::<crate::game::ActiveSabotage>()
+                .is_active()
+        );
+
+        let stations = crate::game::OXYGEN_STATIONS;
+        let bots: Vec<Entity> = {
+            let world = &mut app.sim.world;
+            let mut q = world.query_filtered::<(Entity, &crate::game::Role), (
+                With<crate::game::AiPlayer>,
+                With<crate::game::Alive>,
+            )>();
+            q.iter(world)
+                .filter(|(_, role)| matches!(role, crate::game::Role::Crewmate))
+                .map(|(entity, _)| entity)
+                .collect()
+        };
+        assert!(bots.len() >= 2);
+        let world = &mut app.sim.world;
+        let mut q =
+            world.query_filtered::<&mut crate::game::Position, With<crate::game::AiPlayer>>();
+        for (index, entity) in bots.iter().take(2).enumerate() {
+            q.get_mut(world, *entity).unwrap().0 = stations[index];
+        }
+
+        advance_for(&mut app, 4000);
+        assert!(
+            !app.sim
+                .world
+                .resource::<crate::game::ActiveSabotage>()
+                .is_active()
+        );
+
+        advance_for(&mut app, 30_000);
+        assert!(matches!(
+            *app.sim.world.resource::<GamePhase>(),
+            GamePhase::Playing
+        ));
+    }
+
+    #[test]
+    fn bot_impostor_activates_sabotage() {
+        let mut app = App::new();
+        app.sim.world.insert_resource(MatchSeed(11));
+        goto_state(&mut app.sim.world, AppState::InGame);
+        advance_for(&mut app, 3100);
+        force_all_crew(&mut app);
+        {
+            let world = &mut app.sim.world;
+            let mut q = world
+                .query_filtered::<Entity, (With<crate::game::AiPlayer>, With<crate::game::Alive>)>(
+                );
+            let bot = q.iter(world).next().expect("alive bot impostor candidate");
+            world.entity_mut(bot).insert(crate::game::Role::Impostor);
+        }
+        {
+            let cfg = &mut *app.sim.world.resource_mut::<crate::game::MatchConfig>();
+            cfg.bot_kill_aggression = 0.0;
+            cfg.bot_report_range = 0.0;
+        }
+        app.sim.world.resource_mut::<TaskBoard>().total = 9999;
+
+        let mut activated = false;
+        for _ in 0..300 {
+            app.advance(Duration::from_millis(100));
+            if app
+                .sim
+                .world
+                .resource::<crate::game::SabotageCooldown>()
+                .remaining
+                > 0.0
+            {
+                activated = true;
+                break;
+            }
+        }
+        assert!(activated, "bot impostor never activated a sabotage");
+    }
+
+    #[test]
+    fn trauma_decays_to_zero() {
+        let mut app = App::new();
+        goto_state(&mut app.sim.world, AppState::InGame);
+        app.sim
+            .world
+            .insert_resource(crate::game::Trauma { value: 0.5 });
+        advance_for(&mut app, 1000);
+        assert_eq!(app.sim.world.resource::<crate::game::Trauma>().value, 0.0);
     }
 }

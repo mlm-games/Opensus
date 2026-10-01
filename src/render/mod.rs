@@ -56,6 +56,7 @@ pub struct WorldRender {
 #[derive(Default)]
 pub struct RenderState {
     pub camera: Vec2,
+    shake_time: f32,
     walk: HashMap<u64, WalkAnim>,
 }
 
@@ -83,6 +84,7 @@ pub fn sync_world_render(
 ) -> WorldRender {
     if *world.resource::<AppState>() != AppState::InGame {
         state.walk.clear();
+        state.shake_time = 0.0;
         return WorldRender::default();
     }
     let dt = dt.as_secs_f32();
@@ -93,8 +95,13 @@ pub fn sync_world_render(
     map::push_map_fixtures(world, images, &mut items);
     actors::push_players(world, images, state, dt, &mut items);
     actors::follow_camera(world, state, dt);
+    state.shake_time += dt;
+    let trauma = world
+        .get_resource::<crate::game::Trauma>()
+        .map_or(0.0, |trauma| trauma.value);
+    let shake = game_utils_repame::feel::shake_offset(state.shake_time, trauma * trauma, 1.0);
     WorldRender {
-        camera: state.camera,
+        camera: state.camera + shake,
         items: items.into(),
     }
 }
@@ -507,5 +514,107 @@ mod tests {
                 .iter()
                 .any(|item| matches!(item, DrawItem::Ellipse { .. }))
         );
+    }
+
+    #[test]
+    fn camera_shakes_only_while_trauma_active() {
+        let mut world = World::new();
+        world.insert_resource(AppState::InGame);
+        local_player(&mut world, Vec2::new(100.0, 50.0), Vec2::ZERO);
+        let mut state = RenderState::default();
+
+        let calm = sync_world_render(
+            &mut world,
+            &mut state,
+            &GameImages::default(),
+            Duration::from_millis(16),
+        );
+        assert_eq!(calm.camera, state.camera);
+
+        world.insert_resource(crate::game::Trauma { value: 0.8 });
+        let shaken = sync_world_render(
+            &mut world,
+            &mut state,
+            &GameImages::default(),
+            Duration::from_millis(16),
+        );
+        let offset = shaken.camera - state.camera;
+        assert!(
+            offset.length() > 0.3 && offset.length() < 0.95,
+            "offset {offset:?}"
+        );
+    }
+
+    #[test]
+    fn fix_stations_draw_only_for_active_kind() {
+        use crate::game::{
+            ActiveSabotage, OXYGEN_STATIONS, REACTOR_STATIONS, SabotageFixStation, SabotageKind,
+        };
+
+        let mut world = World::new();
+        world.insert_resource(AppState::InGame);
+        local_player(&mut world, Vec2::ZERO, Vec2::ZERO);
+        world.spawn((
+            SabotageFixStation {
+                id: 0,
+                kind: SabotageKind::Oxygen,
+                progress: 0.0,
+            },
+            Position(OXYGEN_STATIONS[0]),
+        ));
+        world.spawn((
+            SabotageFixStation {
+                id: 2,
+                kind: SabotageKind::Reactor,
+                progress: 0.0,
+            },
+            Position(REACTOR_STATIONS[0]),
+        ));
+        let mut state = RenderState::default();
+
+        let idle = sync_world_render(
+            &mut world,
+            &mut state,
+            &GameImages::default(),
+            Duration::from_millis(16),
+        );
+        assert!(!idle.items.iter().any(|item| matches!(item,
+                DrawItem::Rect { color, .. }
+                if *color == rgba(1.0, 0.6, 0.15, 1.0))));
+
+        world.insert_resource(ActiveSabotage {
+            kind: Some(SabotageKind::Oxygen),
+            timer: None,
+            fixes_needed: 2,
+            fixes_done: 0,
+        });
+        let active = sync_world_render(
+            &mut world,
+            &mut state,
+            &GameImages::default(),
+            Duration::from_millis(16),
+        );
+        assert!(active.items.iter().any(|item| matches!(item,
+                DrawItem::Rect { center, color, .. }
+                if *center == OXYGEN_STATIONS[0] && *color == rgba(1.0, 0.6, 0.15, 1.0))));
+        assert!(!active.items.iter().any(|item| matches!(item,
+                DrawItem::Rect { center, color, .. }
+                if *center == REACTOR_STATIONS[0] && *color == rgba(1.0, 0.6, 0.15, 1.0))));
+
+        let mut q = world.query::<(&mut SabotageFixStation, &Position)>();
+        for (mut station, position) in q.iter_mut(&mut world) {
+            if position.0 == OXYGEN_STATIONS[0] {
+                station.progress = 1.0;
+            }
+        }
+        let fixed = sync_world_render(
+            &mut world,
+            &mut state,
+            &GameImages::default(),
+            Duration::from_millis(16),
+        );
+        assert!(fixed.items.iter().any(|item| matches!(item,
+                DrawItem::Rect { center, color, .. }
+                if *center == OXYGEN_STATIONS[0] && *color == rgba(0.45, 0.75, 0.5, 0.9))));
     }
 }

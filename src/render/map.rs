@@ -5,8 +5,9 @@ use repose_core::{Color, ImageFilter};
 use super::{DrawItem, push_image, push_rect, push_surface, rgb, rgba};
 use crate::assets::GameImages;
 use crate::game::{
-    BriefingTable, CORRIDORS, EMERGENCY_BUTTON_POSITION, FloorKind, LocalPlayer, MAP_FLOOR_SIZE,
-    Position, ROOMS, Role, Side, SolidAabb, TaskAssignments, TaskStation,
+    ActiveSabotage, BriefingTable, CORRIDORS, EMERGENCY_BUTTON_POSITION, FloorKind, LocalPlayer,
+    MAP_FLOOR_SIZE, Position, ROOMS, Role, SabotageFixStation, SabotageKind, Side, SolidAabb,
+    TaskAssignments, TaskStation,
 };
 
 const STATION_TASK: [usize; 10] = [0, 1, 2, 1, 0, 2, 1, 0, 1, 2];
@@ -109,6 +110,7 @@ pub(crate) fn push_map_fixtures(world: &mut World, images: &GameImages, items: &
     }
 
     push_stations(world, images, items);
+    push_fix_stations(world, images, items);
     push_rect(
         items,
         EMERGENCY_BUTTON_POSITION,
@@ -230,5 +232,31 @@ fn push_stations(world: &mut World, images: &GameImages, items: &mut Vec<DrawIte
             .map(|task| images.task[*task])
             .unwrap_or(None);
         push_surface(items, position.0, Vec2::splat(28.0), task, color, 6.0);
+    }
+}
+
+fn push_fix_stations(world: &mut World, images: &GameImages, items: &mut Vec<DrawItem>) {
+    let Some(active) = world
+        .get_resource::<ActiveSabotage>()
+        .and_then(|sabotage| sabotage.kind)
+    else {
+        return;
+    };
+    let mut query = world.query::<(&SabotageFixStation, &Position)>();
+    for (station, position) in query.iter(world) {
+        if station.kind != active {
+            continue;
+        }
+        let tint = if station.progress >= 1.0 {
+            rgba(0.45, 0.75, 0.5, 0.9)
+        } else {
+            rgba(1.0, 0.6, 0.15, 1.0)
+        };
+        let task = match station.kind {
+            SabotageKind::Oxygen => images.task[2],
+            SabotageKind::Reactor => images.task[0],
+            SabotageKind::Lights => images.task[1],
+        };
+        push_surface(items, position.0, Vec2::splat(22.0), task, tint, 6.0);
     }
 }

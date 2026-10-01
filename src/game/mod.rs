@@ -12,6 +12,7 @@ pub mod sabotage;
 pub mod schedule;
 pub mod tasks;
 pub mod timer;
+pub mod vents;
 
 pub use audio::*;
 pub use collision::*;
@@ -27,6 +28,7 @@ pub use sabotage::*;
 pub use schedule::*;
 pub use tasks::*;
 pub use timer::*;
+pub use vents::*;
 
 use bevy_ecs::prelude::*;
 use glam::Vec2;
@@ -151,6 +153,21 @@ pub struct MatchSeed(pub u64);
 
 #[derive(Resource)]
 pub struct MatchRng(pub StdRng);
+
+#[derive(Resource, Default, Clone, Copy, Debug)]
+pub struct Trauma {
+    pub value: f32,
+}
+
+impl Trauma {
+    pub fn add(&mut self, amount: f32) {
+        self.value = (self.value + amount).min(1.0);
+    }
+}
+
+pub fn tick_trauma(time: Res<repame_sim::SimTime>, mut trauma: ResMut<Trauma>) {
+    trauma.value = (trauma.value - time.delta_secs * 1.5).max(0.0);
+}
 
 /// GameOver result written to `SaveData` in memory; the app layer persists
 /// it to disk once after the schedule run.
@@ -360,6 +377,9 @@ fn setup_match(world: &mut World) {
     // `total` is owned by spawn_players_from_lobby.
     *world.resource_mut::<MeetingState>() = MeetingState::default();
     world.resource_mut::<ActiveSabotage>().clear();
+    world.insert_resource(SabotageCooldown::default());
+    world.insert_resource(SabotageRequests::default());
+    world.insert_resource(Trauma::default());
     world.insert_resource(KillRequests::default());
     world.insert_resource(ReportBodies::default());
     world.insert_resource(GameOverSaved(false));
@@ -370,6 +390,7 @@ pub fn enter_ingame(world: &mut World) {
     setup_match(world);
     spawn_map(world);
     spawn_task_stations(world);
+    spawn_fix_stations(world);
     spawn_players_from_lobby(world);
 }
 
@@ -386,6 +407,9 @@ pub fn exit_ingame(world: &mut World) {
     *world.resource_mut::<MatchStats>() = MatchStats::default();
     world.resource_mut::<MeetingState>().clear_for_play();
     world.resource_mut::<ActiveSabotage>().clear();
+    if let Some(mut cooldown) = world.get_resource_mut::<SabotageCooldown>() {
+        cooldown.remaining = 0.0;
+    }
 }
 
 fn cleanup_bodies_on_meeting(
@@ -474,6 +498,7 @@ fn apply_pending_eject(
     mut commands: Commands,
     mut q: Query<(Entity, &Player, &Role), With<Alive>>,
     cfg: Res<MatchConfig>,
+    mut trauma: ResMut<Trauma>,
 ) {
     // Only consume eject once we've entered Results.
     if !matches!(*phase, GamePhase::Results) {
@@ -488,6 +513,7 @@ fn apply_pending_eject(
             continue;
         }
         make_ghost(&mut commands, e);
+        trauma.add(0.5);
         meeting.result_text = if cfg.confirm_ejects {
             if matches!(role, Role::Impostor) {
                 format!("{} was an Impostor.", p.name)
