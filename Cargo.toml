@@ -105,10 +105,10 @@ strip = "debuginfo"
 # repame-fx = { path = "../../Repos/repame/crates/repame-fx" }
 # repame-shell = { path = "../../Repos/repame/crates/repame-shell" }
 # repame-sim = { path = "../../Repos/repame/crates/repame-sim" }
-repose-app = { path = "../../Repos/repose/crates/repose-app" }
-repose-core = { path = "../../Repos/repose/crates/repose-core" }
+# repose-app = { path = "../../Repos/repose/crates/repose-app" }
+# repose-core = { path = "../../Repos/repose/crates/repose-core" }
 # repose-material = { path = "../../Repos/repose/crates/repose-material" }
-repose-platform = { path = "../../Repos/repose/crates/repose-platform" }
+# repose-platform = { path = "../../Repos/repose/crates/repose-platform" }
 # repose-text = { path = "../../Repos/repose/crates/repose-text" }
-repose-tree = { path = "../../Repos/repose/crates/repose-tree" }
+# repose-tree = { path = "../../Repos/repose/crates/repose-tree" }
 # repose-ui = { path = "../../Repos/repose/crates/repose-ui" }
