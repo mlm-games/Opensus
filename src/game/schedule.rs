@@ -10,8 +10,8 @@ use super::{
     local_intent_and_move, play_body_spawn_cue, play_chat_cue, play_critical_alarm,
     play_phase_cues, play_sabotage_cues, play_task_complete_cue, play_vote_confirm_cue,
     process_interactions, read_local_action_edges, read_local_sabotage_edges,
-    reset_cooldowns_after_meeting, tick_emergency_cooldowns, tick_kill_cds, tick_phase_timers,
-    tick_sabotage, tick_trauma, update_local_prompt,
+    reset_cooldowns_after_meeting, tick_emergency_cooldowns, tick_kill_cds, tick_particles,
+    tick_phase_timers, tick_sabotage, tick_trauma, update_local_prompt,
 };
 use crate::app::{AppState, Paused};
 
@@ -100,8 +100,7 @@ pub fn build_game_schedule() -> Schedule {
             (local_intent_and_move, update_local_prompt)
                 .chain()
                 .in_set(GameSimSet::Input)
-                .run_if(gameplay_active)
-                .run_if(in_playing),
+                .run_if(gameplay_active),
             tick_emergency_cooldowns
                 .in_set(GameSimSet::Input)
                 .run_if(in_game)
@@ -161,6 +160,7 @@ pub fn build_game_schedule() -> Schedule {
             apply_pending_eject, // same frame Results starts
             reset_cooldowns_after_meeting,
             tick_trauma,
+            tick_particles,
         )
             .chain()
             .in_set(GameSimSet::Phase)

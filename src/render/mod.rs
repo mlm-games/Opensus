@@ -97,6 +97,7 @@ pub fn sync_world_render(
     let colors = actors::player_colors(world);
     map::push_map_ground(world, images, &mut items);
     map::push_map_fixtures(world, images, &mut items);
+    push_particles(world, &mut items);
     actors::push_actors(world, images, &colors, state, dt, &mut items);
     push_vision_mask(world, images, &mut items);
     actors::follow_camera(world, state, dt);
@@ -108,6 +109,25 @@ pub fn sync_world_render(
     WorldRender {
         camera: state.camera + shake,
         items: items.into(),
+    }
+}
+
+fn push_particles(world: &mut World, items: &mut Vec<DrawItem>) {
+    let mut query = world.query::<&repame_fx::Particle>();
+    let sprites = repame_fx::particle_sprites(query.iter(world));
+    for sprite in sprites {
+        push_rect(
+            items,
+            sprite.center,
+            sprite.size,
+            rgba(
+                sprite.color[0],
+                sprite.color[1],
+                sprite.color[2],
+                sprite.color[3],
+            ),
+            0.0,
+        );
     }
 }
 

@@ -15,6 +15,7 @@ pub mod schedule;
 pub mod tasks;
 pub mod timer;
 pub mod vents;
+pub mod vfx;
 
 pub use audio::*;
 pub use chat::*;
@@ -32,6 +33,7 @@ pub use schedule::*;
 pub use tasks::*;
 pub use timer::*;
 pub use vents::*;
+pub use vfx::*;
 
 use bevy_ecs::prelude::*;
 use glam::Vec2;
@@ -408,7 +410,8 @@ pub fn enter_ingame(world: &mut World) {
 pub fn exit_ingame(world: &mut World) {
     networking::reset_match_state(world);
     let entities: Vec<Entity> = {
-        let mut query = world.query_filtered::<Entity, With<MatchCleanup>>();
+        let mut query =
+            world.query_filtered::<Entity, Or<(With<MatchCleanup>, With<repame_fx::Particle>)>>();
         query.iter(world).collect()
     };
     for entity in entities {

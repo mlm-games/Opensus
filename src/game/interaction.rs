@@ -3,7 +3,7 @@ use glam::Vec2;
 
 use super::{
     ActiveSabotage, Alive, Ghost, MatchConfig, Player, PlayerIntent, Position, Role,
-    SabotageFixStation, SabotageKind, TaskAssignments, TaskBoard, TaskStation,
+    SabotageFixStation, SabotageKind, TaskAssignments, TaskBoard, TaskStation, vfx,
 };
 
 fn reactor_fix_global(
@@ -93,6 +93,7 @@ fn progress_fix_stations_once(
 
 fn progress_tasks_once(
     dt: f32,
+    commands: &mut Commands,
     config: &MatchConfig,
     task_board: &mut TaskBoard,
     workers: &mut Query<
@@ -134,7 +135,7 @@ fn progress_tasks_once(
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
 
-        let Some((task_id, _station_pos)) = nearest else {
+        let Some((task_id, station_pos)) = nearest else {
             assignments.clear_hold();
             continue;
         };
@@ -148,6 +149,7 @@ fn progress_tasks_once(
 
         if assignments.complete_active().is_some() && task_board.completed < task_board.total {
             task_board.completed = task_board.completed.saturating_add(1);
+            vfx::spawn_task_burst(commands, station_pos);
         }
     }
 }
@@ -170,6 +172,7 @@ pub fn process_interactions(
     >,
     task_stations: Query<(&TaskStation, &Position), Without<SabotageFixStation>>,
     mut fix_stations: Query<(Entity, &mut SabotageFixStation, &Position), Without<TaskStation>>,
+    mut commands: Commands,
 ) {
     let dt = time.delta_secs;
 
@@ -192,6 +195,7 @@ pub fn process_interactions(
 
     progress_tasks_once(
         dt,
+        &mut commands,
         &config,
         &mut task_board,
         &mut task_workers,

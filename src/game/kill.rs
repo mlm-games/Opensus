@@ -6,7 +6,7 @@ use glam::Vec2;
 use super::{
     Alive, Body, GamePhase, Ghost, KillCooldownLeft, LocalPlayer, MatchCleanup, MatchConfig,
     MeetingCommand, MeetingCommands, MeetingState, Player, Position, Role, SolidAabb, TaskBoard,
-    Trauma, make_ghost,
+    Trauma, make_ghost, vfx,
 };
 use crate::app::InputEdges;
 use crate::save::SaveData;
@@ -183,6 +183,7 @@ pub fn do_kill(
             weak: 0.5,
             duration_ms: 200,
         });
+        vfx::spawn_kill_burst(&mut commands, pos);
 
         let mut crew = 0u32;
         let mut imps = 0u32;

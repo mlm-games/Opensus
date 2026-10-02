@@ -2,7 +2,7 @@ use bevy_ecs::prelude::*;
 
 use super::{
     Alive, GamePhase, LIGHTS_STATION, LocalPlayer, MatchCleanup, MatchConfig, OXYGEN_STATIONS,
-    Player, Position, REACTOR_STATIONS, Role, SimTimer, TimerMode, Trauma,
+    Player, Position, REACTOR_STATIONS, Role, SimTimer, TimerMode, Trauma, vfx,
 };
 use crate::app::InputEdges;
 use crate::save::SaveData;
@@ -156,9 +156,10 @@ pub fn apply_sabotage(
     config: Res<MatchConfig>,
     mut sabotage: ResMut<ActiveSabotage>,
     mut cooldown: ResMut<SabotageCooldown>,
-    actors: Query<(&Player, &Role), With<Alive>>,
+    actors: Query<(&Player, &Role, &Position), With<Alive>>,
     mut stations: Query<&mut SabotageFixStation>,
     mut trauma: ResMut<Trauma>,
+    mut commands: Commands,
 ) {
     let requests = std::mem::take(&mut requests.0);
     if !matches!(*phase, GamePhase::Playing) {
@@ -170,12 +171,12 @@ pub fn apply_sabotage(
             continue;
         }
 
-        let valid_actor = actors
-            .iter()
-            .any(|(player, role)| player.id == request.actor_id && matches!(role, Role::Impostor));
-        if !valid_actor {
+        let actor_pos = actors.iter().find_map(|(player, role, position)| {
+            (player.id == request.actor_id && matches!(role, Role::Impostor)).then_some(position.0)
+        });
+        let Some(actor_pos) = actor_pos else {
             continue;
-        }
+        };
 
         let (timer, fixes_needed) = match request.kind {
             SabotageKind::Lights => (None, 1),
@@ -201,6 +202,7 @@ pub fn apply_sabotage(
         }
 
         trauma.add(0.6);
+        vfx::spawn_sabotage_burst(&mut commands, actor_pos);
     }
 }
 
