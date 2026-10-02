@@ -3606,9 +3606,9 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "renet2"
-version = "0.16.3"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddf0a3ac3245c6ad72da3d5c9bdaf53461c007835a778381603d4de555c9956d"
+checksum = "5e448516f63d6a229a1a3f4a33c4bc00c1932815c5a42fb729524669fb706663"
 dependencies = [
  "bytes",
  "log",
@@ -3617,9 +3617,9 @@ dependencies = [
 
 [[package]]
 name = "renet2_netcode"
-version = "0.16.3"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca24c3e710a5fa973d1015d18c935c3ac6285f1cd84dfe84e46bdf9f6a9919e6"
+checksum = "988999e77556a3e7a85f4d2f1590af73067f49d394f6eb7be0cb0a1cf1445b64"
 dependencies = [
  "bytes",
  "hmac-sha256",
@@ -3632,9 +3632,9 @@ dependencies = [
 
 [[package]]
 name = "renetcode2"
-version = "0.16.3"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a7dbb573960dbfe47fb92d0114f2aa8f7d3fc9af15533452b23fbfad44e7fdd"
+checksum = "34bb66121dfffcd880a43a6dcad94cc9d5d72531492470de4cc8c2a14e0a9a96"
 dependencies = [
  "chacha20poly1305",
  "log",

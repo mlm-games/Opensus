@@ -55,8 +55,8 @@ anyhow = "1"
 web-time = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-renet2 = { version = "0.16", optional = true, default-features = false }
-renet2_netcode = { version = "0.16", optional = true, default-features = false, features = ["native_transport"] }
+renet2 = { version = "0.17", optional = true, default-features = false }
+renet2_netcode = { version = "0.17", optional = true, default-features = false, features = ["native_transport"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { version = "0.30", features = ["android-native-activity"] }
