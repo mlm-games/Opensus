@@ -29,14 +29,14 @@ networking-native = [
 ]
 
 [dependencies]
-# Engine; [patch.crates-io] below redirects these to the sibling checkouts.
-repame-sim = "0.3"
-repame-shell = "0.3"
-repame-fx = "0.3"
-repame-audio = "0.3"
+# Engine, from crates.io: every repame-* comes from the one published line.
+repame-sim = "0.3.29"
+repame-shell = "0.3.29"
+repame-fx = "0.3.29"
+repame-audio = "0.3.29"
 # Direct dep: bevy derive macros expand to `bevy_ecs::` paths, so every
-# game crate names it explicitly. Must unify with repame-sim's 0.19.
-bevy_ecs = "0.19"
+# game crate names it explicitly. Must unify with repame-sim's 0.20.
+bevy_ecs = "0.20"
 # Same glam as repame: shared math types must unify to one version.
 glam = "0.33"
 repose-core = "0.31"
@@ -94,21 +94,3 @@ lto = "thin"
 inherits = "release"
 opt-level = "s"
 strip = "debuginfo"
-
-[patch.crates-io]
-# Sibling checkouts win over the published crates above; their versions must
-# satisfy the requirements above. game-utils-repame's published 0.4.0 still
-# tracks repame-sim 0.2: uncomment its line to pick up the 0.3 line locally.
-# game-utils = { path = "../../Repos/game-utils/crates/game-utils" }
-# game-utils-repame = { path = "../../Repos/game-utils/crates/game-utils-repame" }
-# repame-audio = { path = "../../Repos/repame/crates/repame-audio" }
-# repame-fx = { path = "../../Repos/repame/crates/repame-fx" }
-# repame-shell = { path = "../../Repos/repame/crates/repame-shell" }
-# repame-sim = { path = "../../Repos/repame/crates/repame-sim" }
-# repose-app = { path = "../../Repos/repose/crates/repose-app" }
-# repose-core = { path = "../../Repos/repose/crates/repose-core" }
-# repose-material = { path = "../../Repos/repose/crates/repose-material" }
-# repose-platform = { path = "../../Repos/repose/crates/repose-platform" }
-# repose-text = { path = "../../Repos/repose/crates/repose-text" }
-# repose-tree = { path = "../../Repos/repose/crates/repose-tree" }
-# repose-ui = { path = "../../Repos/repose/crates/repose-ui" }
