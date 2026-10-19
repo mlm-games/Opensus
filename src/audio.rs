@@ -1,9 +1,18 @@
 use bevy_ecs::prelude::World;
-use repame_audio::{Audio, AudioChannel, CueDef};
+use repame_audio::{AmplitudeEnvelope, Audio, AudioChannel, CueDef, CueSpec, Sweep, Waveform};
 
-use crate::game::{PendingCues, TONE_CUES};
+use crate::game::{PendingCues, TONE_CUES, ToneCue};
 
 const AUDIO_RETRY_SECS: f32 = 1.0;
+const RATE: u32 = 22_050;
+
+/// The old table wrote its sine into 16-bit PCM at `20_000`, so the cue's gain
+/// in full scale is that peak over the decoder's `i16 -> f32` divisor.
+const TONE_PEAK: f32 = 20_000.0 / 32_768.0;
+
+/// The old envelope was `exp(-4 * t_frac)`, a `1/e` fall every quarter of the
+/// cue, which is an ADSR decay of `secs / 4`.
+const TONE_DECAY: f32 = 4.0;
 
 pub struct GameAudio {
     audio: Audio,
@@ -84,43 +93,31 @@ impl Default for GameAudio {
 
 fn load_bank(audio: &mut Audio) -> anyhow::Result<()> {
     for cue in TONE_CUES {
-        let wav = synth_tone(cue.freq, cue.millis);
         let def = CueDef {
             bus: AudioChannel::Sfx,
             gain: cue.gain,
             ..Default::default()
         };
-        audio.load_cue(cue.name, def, &[wav.as_slice()])?;
+        audio.load_synth(cue.name, def, &[tone_spec(cue)])?;
     }
     Ok(())
 }
 
-fn synth_tone(freq_hz: f32, millis: u64) -> Vec<u8> {
-    const RATE: u32 = 22_050;
-    let samples = ((RATE as u64 * millis / 1000).max(1)) as usize;
-    let mut pcm = Vec::with_capacity(samples * 2);
-    for i in 0..samples {
-        let t = i as f32 / RATE as f32;
-        let envelope = (-4.0 * i as f32 / samples as f32).exp();
-        let value = (t * freq_hz * std::f32::consts::TAU).sin() * envelope * 20000.0;
-        pcm.extend_from_slice(&(value as i16).to_le_bytes());
-    }
-    let data_len = pcm.len() as u32;
-    let mut wav = Vec::with_capacity(44 + pcm.len());
-    wav.extend_from_slice(b"RIFF");
-    wav.extend_from_slice(&(36 + data_len).to_le_bytes());
-    wav.extend_from_slice(b"WAVEfmt ");
-    wav.extend_from_slice(&16u32.to_le_bytes());
-    wav.extend_from_slice(&1u16.to_le_bytes());
-    wav.extend_from_slice(&1u16.to_le_bytes());
-    wav.extend_from_slice(&RATE.to_le_bytes());
-    wav.extend_from_slice(&(RATE * 2).to_le_bytes());
-    wav.extend_from_slice(&2u16.to_le_bytes());
-    wav.extend_from_slice(&16u16.to_le_bytes());
-    wav.extend_from_slice(b"data");
-    wav.extend_from_slice(&data_len.to_le_bytes());
-    wav.extend_from_slice(&pcm);
-    wav
+/// The cue's length was authored as whole milliseconds at 22.05 kHz, so the
+/// frame count is rounded the same way the table was.
+fn tone_spec(cue: &ToneCue) -> CueSpec {
+    let frames = (RATE as u64 * cue.millis / 1000).max(1) as f32;
+    let secs = frames / RATE as f32;
+    CueSpec::new(Waveform::Sine, cue.freq, secs)
+        .with_sweep(cue.freq, Sweep::Constant)
+        .with_amplitude(AmplitudeEnvelope::Adsr {
+            attack_s: 0.0,
+            decay_s: secs / TONE_DECAY,
+            sustain: 0.0,
+            release_s: 0.0,
+        })
+        .with_gain(TONE_PEAK)
+        .with_sample_rate(RATE)
 }
 
 #[cfg(test)]
@@ -128,14 +125,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tone_cues_decode_as_wav() {
+    fn tone_cues_render_for_their_whole_length() {
         for cue in TONE_CUES {
-            let wav = synth_tone(cue.freq, cue.millis);
-            assert_eq!(&wav[0..4], b"RIFF");
-            assert_eq!(&wav[8..12], b"WAVE");
-            let expected = 44 + 2 * (22_050u64 * cue.millis / 1000) as usize;
-            assert_eq!(wav.len(), expected, "{}", cue.name);
-            repame_audio::decode_bytes(&wav).expect("tone wav decodes");
+            let spec = tone_spec(cue);
+            let expected = (RATE as u64 * cue.millis / 1000).max(1) as usize;
+            assert_eq!(
+                spec.duration_frames(RATE).expect("tone has a length"),
+                expected,
+                "{}",
+                cue.name
+            );
+            let rendered = spec.render().expect("tone renders");
+            assert_eq!(rendered.len_frames(), expected, "{}", cue.name);
         }
     }
 

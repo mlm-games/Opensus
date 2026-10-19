@@ -30,10 +30,10 @@ networking-native = [
 
 [dependencies]
 # Engine, from crates.io: every repame-* comes from the one published line.
-repame-sim = "0.3.29"
-repame-shell = "0.3.29"
-repame-fx = "0.3.29"
-repame-audio = "0.3.29"
+repame-sim = "0.3.34"
+repame-shell = "0.3.34"
+repame-fx = "0.3.34"
+repame-audio = "0.3.34"
 # Direct dep: bevy derive macros expand to `bevy_ecs::` paths, so every
 # game crate names it explicitly. Must unify with repame-sim's 0.20.
 bevy_ecs = "0.20"
